@@ -1,0 +1,12 @@
+__pycache__/
+*.pyc
+*.egg-info/
+.venv/
+build/
+dist/
+
+# working data dirs (not source)
+data/
+data_cache/
+logs/
+*.log

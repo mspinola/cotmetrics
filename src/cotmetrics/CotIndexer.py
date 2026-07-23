@@ -1,0 +1,1707 @@
+import json
+import os
+from functools import lru_cache
+
+import pandas as pd
+import yaml
+
+import cotmetrics as metrics
+import cotmetrics.constants as const
+import cotmetrics.models as models
+import cotmetrics.symbol_code_map as symbol_code_map
+import cotmetrics.utils as utils
+from cotmetrics.database import cotDatabase
+
+# Instrument roles decouple data collection from what the dashboard plots.
+#   deploy  — in the book, plotted (default)
+#   watch   — plotted, not in the book
+#   heldout — collected + indexed but NOT plotted or selected
+VALID_ROLES = frozenset({"deploy", "watch", "heldout"})
+PLOTTED_ROLES = frozenset({"deploy", "watch"})
+
+
+def resolve_role(asset: dict, asset_class: str, role_config: dict) -> str:
+    """A per-instrument ``Role`` wins, else the class-level default in ``role_config``,
+    else ``role_config['default']`` (falling back to 'deploy'). Raises on an unknown
+    role so a typo can't silently make a market plot-or-not."""
+    role = (asset.get("Role") or role_config.get(asset_class)
+            or role_config.get("default", "deploy"))
+    if role not in VALID_ROLES:
+        raise ValueError(
+            f"invalid Role {role!r} for {asset.get('Symbol')} in '{asset_class}'; "
+            f"expected one of {sorted(VALID_ROLES)}")
+    return role
+
+
+class Instrument:
+    def __init__(self, asset_class_, name_, symbol_, code_, custom_lookback_,
+                 role_="deploy"):
+        self.asset_class = asset_class_
+        self.name = name_
+        self.symbol = symbol_
+        self.code = code_
+        self.custom_lookback = custom_lookback_
+        self.role = role_
+        self.df = pd.DataFrame()
+
+    def append(self, df):
+        if self.df.empty:
+            self.df = df
+        else:
+            self.df = pd.concat([self.df, df])
+
+    def sort_by_date(self, col, ascending=True):
+        self.df = self.df.sort_values(by=col, ascending=ascending)
+
+    def __str__(self):
+        return f"{self.name} {self.symbol} {self.code} {self.custom_lookback}"
+
+
+class CotIndexer:
+    def __init__(self, real_test_data_dir=None, params_dir=None):
+        import cotmetrics.config as config
+        self._config = config
+        self.base_dir = config.data_dir()
+
+        self.real_test_data_dir = real_test_data_dir if real_test_data_dir else os.path.join(config.data_dir(), 'real_test_data')
+        self.params_dir = params_dir if params_dir else config.params_path()
+
+        self.last_known_db_time = cotDatabase.latest_update_timestamp()
+
+        self.instruments = dict()
+        self.supported_instruments = set()
+        self.asset_class_map = dict()
+        self.role_config = {}
+        self.lookbacks = []
+        self.years = []
+
+        self.load_years()
+        self.load_roles()
+        self.load_instruments()
+        self.load_lookbacks()
+        self.load_price_config()
+
+        if self.try_load_from_cache():
+            utils.cot_logger.info("CotIndexer: Loaded instruments from Parquet cache!")
+        else:
+            utils.cot_logger.warning("CotIndexer: Cache missing or stale. Running full indexing and calculation rebuild...")
+            self.populate_instruments()
+            self.calculate_weekly_data()
+            self.export_cot_data_to_csv()
+            self.export_weekly_summary_results_to_csv()
+            self.export_real_test_data_to_csv()
+        # The daily options fetch is NOT run here — constructing/importing the
+        # indexer must not trigger live network I/O. The app calls
+        # core.indexer.boot_options_update() explicitly at startup instead.
+
+    def load_years(self):
+        with open(self.params_dir, 'r') as yf:
+            yaml_data = yaml.safe_load(yf)
+            for year in yaml_data["years"]:
+                self.years.append(year)
+
+    def load_roles(self):
+        """Load the optional `roles:` block (per-class defaults + global `default`)."""
+        with open(self.params_dir, 'r') as yf:
+            yaml_data = yaml.safe_load(yf)
+            self.role_config = yaml_data.get("roles", {}) or {}
+
+    def load_instruments(self):
+        with open(self.params_dir, 'r') as yf:
+            yaml_data = yaml.safe_load(yf)
+            for asset_class_dict in yaml_data["AssetClasses"]:
+                for asset_class, assets in asset_class_dict.items():
+                    self.asset_class_map[asset_class] = set()
+                    for asset in assets:
+                        code = symbol_code_map.cot_root_code_map[asset["Symbol"]]
+                        if not code == "":
+                            self.instruments[code] = Instrument(
+                                asset_class, asset["Name"], asset["Symbol"], code,
+                                asset["CustomLookbackWeeks"],
+                                resolve_role(asset, asset_class, self.role_config))
+                            self.supported_instruments.add(code)
+                            self.asset_class_map[asset_class].add(
+                                asset["Name"])
+
+    # ── role-filtered views (the dashboard renders only PLOTTED_ROLES; the full
+    #    `instruments`/`asset_class_map` stay intact for data + strategy scoring) ──
+    def plotted_instruments(self):
+        """code -> Instrument for markets that should render (deploy/watch)."""
+        return {c: i for c, i in self.instruments.items() if i.role in PLOTTED_ROLES}
+
+    def plotted_asset_class_map(self):
+        """asset_class -> {names}, restricted to plotted instruments; a class whose
+        every member is heldout drops out entirely."""
+        out = {}
+        for i in self.instruments.values():
+            if i.role in PLOTTED_ROLES:
+                out.setdefault(i.asset_class, set()).add(i.name)
+        return out
+
+    def instruments_with_role(self, *roles):
+        """code -> Instrument filtered to the given role(s)."""
+        rs = set(roles)
+        return {c: i for c, i in self.instruments.items() if i.role in rs}
+
+    def load_lookbacks(self):
+        with open(self.params_dir, 'r') as yf:
+            yaml_data = yaml.safe_load(yf)
+            for lb in yaml_data["lookbacks"]:
+                self.lookbacks.append([lb[0], int(lb[1])])
+
+    def load_price_config(self):
+        """Loads price_type and flow_caps from params.yaml."""
+        with open(self.params_dir, 'r') as yf:
+            yaml_data = yaml.safe_load(yf)
+            self.price_type = yaml_data.get("price_type", "close")
+            self.flow_caps = yaml_data.get("flow_caps", {})
+
+    def _load_raw_cot(self, columns=None) -> pd.DataFrame:
+        """Raw weekly COT (Legacy schema, Report_Date as a column) from the cotdata
+        store, one per-code table per supported instrument, concatenated. Falls
+        back to the legacy raw_cot_data.parquet if the store has no COT yet."""
+        import cotdata
+        frames = []
+        for code in self.supported_instruments:
+            cdf = cotdata.get_cot(code)
+            if cdf is not None and not cdf.empty:
+                frames.append(cdf.reset_index())  # Report_Date index → column
+        if frames:
+            df = pd.concat(frames, ignore_index=True)
+            return df[columns] if columns else df
+        # Fallback: legacy ETL parquet (until the COT store is populated everywhere)
+        raw_parquet_path = os.path.join(self.base_dir, 'raw_cot_data.parquet')
+        if os.path.exists(raw_parquet_path):
+            utils.cot_logger.info("_load_raw_cot: cotdata store empty, using legacy raw_cot_data.parquet")
+            return pd.read_parquet(raw_parquet_path, columns=columns) if columns else pd.read_parquet(raw_parquet_path)
+        return pd.DataFrame()
+
+    @staticmethod
+    def _cache_schema_marker_path() -> str:
+        """Sidecar recording the cotdata schema_version and the cotmetrics
+        METRICS_CACHE_VERSION the caches were built under. A sidecar (not a df
+        column) so it never leaks into metrics/ML features."""
+        return os.path.join(const.CACHE_DIR, "_cotdata_schema.json")
+
+    @classmethod
+    def _read_cache_marker(cls) -> dict:
+        try:
+            with open(cls._cache_schema_marker_path()) as f:
+                data = json.load(f)
+            return data if isinstance(data, dict) else {}
+        except (OSError, ValueError):
+            return {}
+
+    @classmethod
+    def _read_cache_schema(cls) -> int:
+        try:
+            return int(cls._read_cache_marker().get("schema_version", 0))
+        except (TypeError, ValueError):
+            return 0
+
+    @classmethod
+    def _read_cache_metrics_version(cls) -> int:
+        try:
+            return int(cls._read_cache_marker().get("metrics_version", 0))
+        except (TypeError, ValueError):
+            return 0
+
+    @classmethod
+    def _stamp_cache_schema(cls) -> None:
+        """Record the cotdata schema_version and our METRICS_CACHE_VERSION next to
+        the parquet caches, so both an upstream store move and an internal
+        metrics-logic change bust the caches."""
+        marker = {"metrics_version": int(const.METRICS_CACHE_VERSION)}
+        try:
+            import cotdata
+            marker["schema_version"] = int(cotdata.schema_version())
+        except Exception as e:
+            # Preserve any previously recorded store schema rather than zeroing it
+            # (which would force a rebuild on every boot without cotdata).
+            prev = cls._read_cache_schema()
+            if prev:
+                marker["schema_version"] = prev
+            utils.cot_logger.warning(f"_stamp_cache_schema: cotdata schema unavailable: {e}")
+        try:
+            os.makedirs(const.CACHE_DIR, exist_ok=True)
+            with open(cls._cache_schema_marker_path(), "w") as f:
+                json.dump(marker, f)
+        except Exception as e:  # never let cache bookkeeping break a build
+            utils.cot_logger.warning(f"_stamp_cache_schema: could not write marker: {e}")
+
+    def try_load_from_cache(self) -> bool:
+        """
+        Attempts to load instruments from the local Parquet cache files.
+        """
+        if not self.years:
+            utils.cot_logger.warning("try_load_from_cache: self.years is empty")
+            return False
+
+        # Bust all caches when our own derived-metrics logic changed (e.g. the
+        # Spearman fallback going 0.0 -> NaN). Like the store-schema case below
+        # this is a value-only change the per-symbol column-presence guards can't
+        # see, but it originates here rather than upstream — so it gets its own
+        # counter that is checked even when cotdata is unavailable.
+        cached_metrics_version = self._read_cache_metrics_version()
+        if cached_metrics_version < int(const.METRICS_CACHE_VERSION):
+            utils.cot_logger.info(
+                f"try_load_from_cache: cache metrics version {cached_metrics_version} "
+                f"< cotmetrics METRICS_CACHE_VERSION {const.METRICS_CACHE_VERSION} "
+                f"— rebuilding all caches.")
+            return False
+
+        # Bust all caches when the cotdata store schema moved (e.g. reconstructed
+        # volume promoted). The per-symbol guards below key on column *presence*,
+        # so they can't see a value-only change like front→reconstructed volume;
+        # the schema marker can.
+        try:
+            import cotdata
+            store_schema = int(cotdata.schema_version())
+            if self._read_cache_schema() < store_schema:
+                utils.cot_logger.info(
+                    f"try_load_from_cache: cache schema {self._read_cache_schema()} "
+                    f"< cotdata schema {store_schema} — rebuilding all caches.")
+                return False
+        except Exception as e:
+            utils.cot_logger.warning(f"try_load_from_cache: schema check skipped: {e}")
+
+        self.years[-1]
+
+        try:
+            df_latest = self._load_raw_cot(columns=[const.REPORT_DATE_XLS, const.CONTRACT_CODE_XLS])
+
+            if df_latest.empty:
+                utils.cot_logger.warning("try_load_from_cache: df_latest is empty")
+                return False
+
+            df_latest['std_code'] = df_latest[const.CONTRACT_CODE_XLS].apply(utils.standardize_contract_code)
+            df_latest['parsed_date'] = pd.to_datetime(df_latest[const.REPORT_DATE_XLS]).dt.tz_localize(None)
+
+            # Map standardized code to its max report date in latest data
+            raw_dates_by_code = df_latest.groupby('std_code')['parsed_date'].max().to_dict()
+            # Also get the overall max report date
+            fallback_max_date = df_latest['parsed_date'].max()
+        except Exception as e:
+            print(f"\n\nError reading latest raw date: {e}\n\n")
+            utils.cot_logger.error(f"Error reading latest raw date: {e}")
+            return False
+
+        temp_instruments = {}
+        for instrument_code in self.supported_instruments:
+            instrument = self.instruments[instrument_code]
+            cache_path = os.path.join(const.CACHE_DIR, f"{instrument.symbol}.parquet")
+            if not os.path.exists(cache_path):
+                utils.cot_logger.warning(f"try_load_from_cache: cache file missing -> {cache_path}")
+                return False
+            try:
+                cached_df = pd.read_parquet(cache_path)
+                if cached_df.empty or const.REPORT_DATE_XLS not in cached_df.columns:
+                    utils.cot_logger.warning(f"try_load_from_cache: cache invalid or empty -> {cache_path}")
+                    return False
+
+                # Ensure it has calculated metrics in it (e.g. COMM_CUSTOM_IDX)
+                # If it doesn't, it is a partial/price-only cache and needs recalculation
+                if const.COMM_CUSTOM_IDX not in cached_df.columns:
+                    utils.cot_logger.warning(f"try_load_from_cache: missing metrics in -> {cache_path}")
+                    return False
+
+                # Force a rebuild of caches predating the week-over-week index deltas.
+                # get_symbols_data reads them unconditionally, so a stale cache would
+                # KeyError at load rather than degrade.
+                # Both bases: the normalized twin landed later, so a cache built in
+                # between carries the raw family and not the normalized one.
+                if (const.COMM_CUSTOM_WOW not in cached_df.columns
+                        or const.COMM_CUSTOM_WOW_NORM not in cached_df.columns):
+                    utils.cot_logger.warning(f"try_load_from_cache: missing WoW metrics in -> {cache_path}")
+                    return False
+
+                # Force a rebuild of caches predating the true-MM (disaggregated)
+                # concentration columns. Only commodities carry MM data, so the
+                # column's absence on a financial cache is fine — but if NO cache
+                # has it, the schema is stale and must be recomputed.
+                if (self.is_commodity_code(instrument_code)
+                        and const.MM_LONG_PSIZE_IDX not in cached_df.columns):
+                    utils.cot_logger.warning(f"try_load_from_cache: missing true-MM metrics in -> {cache_path}")
+                    return False
+                if (self.has_tff_code(instrument_code)
+                        and const.LEV_LONG_PSIZE_IDX not in cached_df.columns):
+                    utils.cot_logger.warning(f"try_load_from_cache: missing TFF-LEV metrics in -> {cache_path}")
+                    return False
+
+                # Get the latest date in the excel file for this specific instrument, falling back to overall max date
+                std_inst_code = utils.standardize_contract_code(instrument_code)
+                latest_raw_date = raw_dates_by_code.get(std_inst_code, fallback_max_date)
+
+                latest_cached_date = pd.to_datetime(cached_df[const.REPORT_DATE_XLS]).max().tz_localize(None)
+                if latest_raw_date > latest_cached_date:
+                    print(f"Cache stale for {instrument.symbol}: raw date {latest_raw_date.date()} > cached date {latest_cached_date.date()}")
+                    utils.cot_logger.info(f"Cache stale for {instrument.symbol}: raw date {latest_raw_date.date()} > cached date {latest_cached_date.date()}")
+                    return False
+
+                temp_instruments[instrument_code] = cached_df
+            except Exception as e:
+                print(f"\n\nError reading cache for {instrument.symbol}: {e}")
+                utils.cot_logger.error(f"Error reading cache for {instrument.symbol}: {e}")
+                return False
+
+        # If all cache files are valid and up-to-date, populate instruments and skip full pipeline
+        for instrument_code, cached_df in temp_instruments.items():
+            self.instruments[instrument_code].df = cached_df
+
+        return True
+
+    def populate_instruments(self):
+        df = self._load_raw_cot()
+        if df.empty:
+            msg = "No COT data available (cotdata store empty and no legacy raw_cot_data.parquet). Run `cotdata-update --cot` first."
+            utils.cot_logger.error(msg)
+            raise FileNotFoundError(msg)
+
+        utils.cot_logger.info(f"Loaded {len(df)} raw COT rows for {len(self.supported_instruments)} instruments...")
+
+        for instrument in self.supported_instruments:
+            self.instruments[instrument].append(
+                df.loc[df[const.CONTRACT_CODE_XLS] == instrument])
+
+        for instrument in self.supported_instruments:
+            # Sort by date and add a row count index
+            self.instruments[instrument].sort_by_date(
+                const.REPORT_DATE_XLS, ascending=True)
+            self.instruments[instrument].df = self.instruments[instrument].df.drop_duplicates(subset=[const.REPORT_DATE_XLS], keep='last')
+            self.instruments[instrument].df.index = range(
+                0, len(self.instruments[instrument].df))
+            self._attach_disagg_mm(instrument)
+            self._attach_tff_lev(instrument)
+
+    def _has_report_code(self, code, attr, dir_fn):
+        """Cached membership test: does `code` have a per-code file in a store subdir?
+        Zero network — one dir listing, cached under `attr`."""
+        if getattr(self, attr, None) is None:
+            try:
+                setattr(self, attr, {p.stem for p in dir_fn().glob("*.parquet")})
+            except Exception:
+                setattr(self, attr, set())
+        s = str(code).strip()
+        st = getattr(self, attr)
+        return s in st or s.zfill(6) in st
+
+    def is_commodity_code(self, code):
+        """True if the code has a disaggregated report (physical commodity; financials
+        are covered by the separate TFF report and have none)."""
+        import cotdata.config as _cfg
+        return self._has_report_code(code, "_disagg_code_set", _cfg.cot_disagg_dir)
+
+    def has_tff_code(self, code):
+        """True if the code has a TFF (Traders in Financial Futures) report — i.e. a
+        financial future carrying the Leveraged-Funds (LEV) speculative group."""
+        import cotdata.config as _cfg
+        return self._has_report_code(code, "_tff_code_set", _cfg.cot_tff_dir)
+
+    def _attach_disagg_mm(self, instrument_code):
+        """Left-join TRUE Money-Manager positions from the disaggregated store onto an
+        instrument's legacy frame, keyed on report date. Commodities gain MM_*_POS_XLS;
+        financials (no disaggregated report) are left untouched — the concentration code
+        downstream guards on column presence, so those simply get no MM signal."""
+        import cotdata
+        inst = self.instruments[instrument_code]
+        try:
+            dg = cotdata.get_cot(instrument_code, report="disagg")
+        except Exception as e:
+            utils.cot_logger.warning(f"_attach_disagg_mm: disagg load failed for {instrument_code}: {e}")
+            return
+        if dg is None or dg.empty or const.MM_LONG_POS_XLS not in dg.columns:
+            return
+        # Attach only the MM-specific columns. Traders_Tot_All is NOT re-merged —
+        # base already carries the legacy total (what signals.py reads), and
+        # re-merging it caused duplicate-column collisions.
+        cols = [const.MM_LONG_POS_XLS, const.MM_SHORT_POS_XLS,
+                const.MM_LONG_TRADERS_XLS, const.MM_SHORT_TRADERS_XLS]
+        cols = [c for c in cols if c in dg.columns]
+        mm = dg.reset_index()[[const.REPORT_DATE_XLS] + cols].copy()
+        mm[const.REPORT_DATE_XLS] = pd.to_datetime(mm[const.REPORT_DATE_XLS]).dt.tz_localize(None)
+        # Trader counts arrive as whitespace-padded strings ("     48") — coerce to numeric.
+        for tc in (const.MM_LONG_TRADERS_XLS, const.MM_SHORT_TRADERS_XLS):
+            if tc in mm.columns:
+                mm[tc] = pd.to_numeric(mm[tc].astype(str).str.strip(), errors="coerce")
+        base = inst.df.copy()
+        base[const.REPORT_DATE_XLS] = pd.to_datetime(base[const.REPORT_DATE_XLS]).dt.tz_localize(None)
+        # Idempotent: drop any prior attach of these columns so a repeat
+        # populate_instruments() can't duplicate them (no suffix collisions).
+        base = base.drop(columns=[c for c in cols if c in base.columns], errors="ignore")
+        merged = base.merge(mm, on=const.REPORT_DATE_XLS, how="left")
+        merged.index = range(len(merged))
+        inst.df = merged
+
+    def _attach_tff_lev(self, instrument_code):
+        """Left-join TFF Leveraged-Funds positions + trader counts onto a financial
+        instrument's frame, keyed on report date. Mirror of _attach_disagg_mm for the
+        disjoint financial universe; commodities have no TFF report and are untouched."""
+        import cotdata
+        inst = self.instruments[instrument_code]
+        try:
+            tf = cotdata.get_cot(instrument_code, report="tff")
+        except Exception as e:
+            utils.cot_logger.warning(f"_attach_tff_lev: tff load failed for {instrument_code}: {e}")
+            return
+        if tf is None or tf.empty or const.LEV_LONG_POS_XLS not in tf.columns:
+            return
+        # Attach only the Lev-specific columns; Traders_Tot_All stays base's legacy
+        # value (not re-merged) to avoid duplicate-column collisions.
+        cols = [const.LEV_LONG_POS_XLS, const.LEV_SHORT_POS_XLS,
+                const.LEV_LONG_TRADERS_XLS, const.LEV_SHORT_TRADERS_XLS]
+        cols = [c for c in cols if c in tf.columns]
+        lev = tf.reset_index()[[const.REPORT_DATE_XLS] + cols].copy()
+        lev[const.REPORT_DATE_XLS] = pd.to_datetime(lev[const.REPORT_DATE_XLS]).dt.tz_localize(None)
+        for tc in (const.LEV_LONG_TRADERS_XLS, const.LEV_SHORT_TRADERS_XLS):
+            if tc in lev.columns:
+                lev[tc] = pd.to_numeric(lev[tc].astype(str).str.strip(), errors="coerce")
+        base = inst.df.copy()
+        base[const.REPORT_DATE_XLS] = pd.to_datetime(base[const.REPORT_DATE_XLS]).dt.tz_localize(None)
+        # Idempotent: drop any prior tff attach so a repeat populate can't duplicate.
+        base = base.drop(columns=[c for c in cols if c in base.columns], errors="ignore")
+        merged = base.merge(lev, on=const.REPORT_DATE_XLS, how="left")
+        merged.index = range(len(merged))
+        inst.df = merged
+
+    def estimate_current_gap_positions(self, df, symbol, lb_weeks):
+        """
+        Estimates the net position change from Tuesday close to Friday
+        using a deterministic Synthetic COT Baseline.
+        """
+        df.attrs['synthetic_daily'] = pd.DataFrame()
+        if df.empty:
+            return
+
+        import cotdata
+        import numpy as np
+
+        # Tuesday's official baseline
+        last_row = df.iloc[-1]
+        last_idx = df.index[-1]
+        tue_date = last_row[const.REPORT_DATE_XLS]
+
+        tue_price = last_row[const.CLOSING_PRICE]
+        tue_oi = last_row[const.OPEN_INTEREST_XLS]
+        comm_net = last_row[const.COMM_NET]
+        lrg_net = last_row[const.LARGE_NET]
+        sml_net = last_row[const.SMALL_NET]
+
+        # Failsafe values
+        df.at[last_idx, const.COMM_NET_EST] = comm_net
+        df.at[last_idx, const.LARGE_NET_EST] = lrg_net
+        df.at[last_idx, const.SMALL_NET_EST] = sml_net
+
+        if tue_price == 0:
+            return
+
+        try:
+            # Fetch current daily data from cotdata (Norgate or Databento fallback).
+            # volume='front' (total-curve, all contracts) — NOT 'reconstructed'
+            # (first+second only). The flow cap min(|ΔOI|, volume*cap_pct) is a proxy
+            # for COT-measured flow, and COT aggregates ALL contract months, so the
+            # cap should scale with total-curve volume. Reconstructed (top-2) under-
+            # counts deep-curve markets and over-throttles their true |ΔOI| by an
+            # extra 8-15% (NG/RB/CL) for no market reason; front-concentrated symbols
+            # are unaffected. See the ΔOI-tracking analysis (2026-07). The reconstructed
+            # columns remain available via cotdata for other uses; the flow cap wants total.
+            current_data = cotdata.get_prices(symbol, adjustment='backadj', volume='front', start=tue_date.strftime('%Y-%m-%d'))
+
+            if current_data.empty:
+                return
+
+            # Extract Databento's Tuesday OI to calculate multiplier for Databento's scaled OI
+            db_tue_data = current_data[current_data.index == tue_date]
+            db_tue_oi_raw = None
+            if not db_tue_data.empty:
+                db_tue_oi_raw = db_tue_data.iloc[0].get('Open Interest')
+
+            multiplier = 1.0
+            if pd.notna(db_tue_oi_raw) and db_tue_oi_raw != 0:
+                multiplier = tue_oi / db_tue_oi_raw
+
+            # Keep only the days *after* the Tuesday cutoff
+            current_data = current_data[current_data.index > tue_date].copy()
+            if current_data.empty:
+                return
+
+            prev_price = tue_price
+            prev_oi = tue_oi
+
+            syn_comm = comm_net
+            syn_lrg = lrg_net
+            syn_sml = sml_net
+
+            daily_records = []
+
+            for date, row in current_data.iterrows():
+                close = row['Close']
+                volume = row.get('Volume', 0)
+                oi_raw = row.get('Open Interest')
+
+                delta_price = close - prev_price
+
+                if pd.isna(oi_raw) or oi_raw == 0:
+                    # Missing OI fallback: use 5% of Volume as the proxy flow
+                    flow = volume * 0.05
+                    delta_oi = np.sign(delta_price) * flow
+                    oi = prev_oi + delta_oi
+                else:
+                    oi = oi_raw * multiplier
+                    delta_oi = oi - prev_oi
+
+                    # Cap the flow using an asset-class specific fraction of daily volume.
+                    # Equities have massive intraday/HFT volume, so they need a much tighter cap.
+                    instrument_obj = self.get_instrument_from_symbol(symbol)
+                    asset_class = instrument_obj.asset_class if instrument_obj else ""
+
+                    flow_caps = getattr(self, 'flow_caps', {})
+                    if asset_class in flow_caps:
+                        cap_pct = flow_caps[asset_class]
+                    else:
+                        cap_pct = flow_caps.get("Default", 0.10)
+
+                    flow = min(abs(delta_oi), volume * cap_pct)
+
+                # Commercials take the OTHER side of price. If price goes down, they buy (+1)
+                sign_comm = -np.sign(delta_price) if delta_price != 0 else 0
+
+                # Speculators are trend followers. They take the SAME side of price.
+                sign_spec = np.sign(delta_price) if delta_price != 0 else 0
+
+                # Friction Coefficients (Prorating the OI flow)
+                comm_delta = sign_comm * flow * 0.60
+                lrg_delta = sign_spec * flow * 0.35
+                sml_delta = sign_spec * flow * 0.05
+
+                syn_comm += comm_delta
+                syn_lrg += lrg_delta
+                syn_sml += sml_delta
+
+                if lb_weeks and len(df) >= lb_weeks:
+                    historical_comm = df[const.COMM_NET].iloc[-lb_weeks:]
+                    historical_lrg = df[const.LARGE_NET].iloc[-lb_weeks:]
+                    historical_sml = df[const.SMALL_NET].iloc[-lb_weeks:]
+
+                    c_min, c_max = historical_comm.min(), historical_comm.max()
+                    l_min, l_max = historical_lrg.min(), historical_lrg.max()
+                    s_min, s_max = historical_sml.min(), historical_sml.max()
+
+                    c_min = min(c_min, syn_comm)
+                    c_max = max(c_max, syn_comm)
+                    l_min = min(l_min, syn_lrg)
+                    l_max = max(l_max, syn_lrg)
+                    s_min = min(s_min, syn_sml)
+                    s_max = max(s_max, syn_sml)
+
+                    comm_idx = (syn_comm - c_min) / (c_max - c_min + 1e-9) * 100
+                    lrg_idx = (syn_lrg - l_min) / (l_max - l_min + 1e-9) * 100
+                    sml_idx = (syn_sml - s_min) / (s_max - s_min + 1e-9) * 100
+                else:
+                    comm_idx, lrg_idx, sml_idx = 0, 0, 0
+
+                oi_proxied = pd.isna(oi_raw) or oi_raw == 0
+
+                daily_records.append({
+                    "Date": date,
+                    "Close": close,
+                    "Delta Price": delta_price,
+                    "Open Interest": oi,
+                    "Delta OI": delta_oi,
+                    "OI Proxied": oi_proxied,
+                    "Comm Est": syn_comm,
+                    "Lrg Est": syn_lrg,
+                    "Sml Est": syn_sml,
+                    "Comm Idx": comm_idx,
+                    "Lrg Idx": lrg_idx,
+                    "Sml Idx": sml_idx
+                })
+
+                prev_price = close
+                prev_oi = oi
+
+            # Apply final estimates to the dataframe
+            if daily_records:
+                df.at[last_idx, const.LIVE_PRICE] = prev_price
+                df.at[last_idx, const.COMM_NET_EST] = round(syn_comm, 0)
+                df.at[last_idx, const.LARGE_NET_EST] = round(syn_lrg, 0)
+                df.at[last_idx, const.SMALL_NET_EST] = round(syn_sml, 0)
+
+                # Attach the daily breakdown to the dataframe attributes for UI consumption
+                df.attrs['synthetic_daily'] = pd.DataFrame(daily_records)
+
+
+        except Exception as e:
+            utils.cot_logger.error(f"Error estimating gap for {symbol}: {e}")
+
+        utils.cot_logger.debug(
+            f"Estimated positions for {symbol} - Comm: {df.at[last_idx, const.COMM_NET_EST]}, Large: {df.at[last_idx, const.LARGE_NET_EST]}, Small: {df.at[last_idx, const.SMALL_NET_EST]}"
+        )
+
+    @staticmethod
+    def process_lookback(lookback, symbol, df):
+        idx_col_header_name = const.get_lookback_header_str(lookback) + const.IDX
+        COMM_IDX = const.COMM + idx_col_header_name
+        LRG_IDX = const.LARGE + idx_col_header_name
+        SML_IDX = const.SMALL + idx_col_header_name
+
+        idx_norm_col_header_name = const.get_lookback_header_str(lookback) + const.IDX + const.NORMALIZED
+        COMM_NORM_IDX = const.COMM + idx_norm_col_header_name
+        LRG_NORM_IDX = const.LARGE + idx_norm_col_header_name
+        SML_NORM_IDX = const.SMALL + idx_norm_col_header_name
+
+        WILLCO = const.WILLCO + const.get_lookback_header_str(lookback)
+
+        LIQUIDITY_STRAIN = const.LIQUIDITY_STRAIN + const.ZSCORE + const.get_lookback_header_str(lookback)
+        PRICE_HEDGING_DIV = const.PRICE_HEDGING_DIV + const.ZSCORE + const.get_lookback_header_str(lookback)
+
+        lb_weeks = lookback[1]
+        for idx in range(len(df)):
+            if lb_weeks < 0 or idx < lb_weeks:
+                df.at[idx, COMM_IDX] = None
+                df.at[idx, LRG_IDX] = None
+                df.at[idx, SML_IDX] = None
+                df.at[idx, COMM_NORM_IDX] = None
+                df.at[idx, LRG_NORM_IDX] = None
+                df.at[idx, SML_NORM_IDX] = None
+                df.at[idx, WILLCO] = None
+            else:
+                lb_idx = idx - lb_weeks
+                df.at[idx, COMM_IDX] = metrics.calculate_cot_index(df[const.COMM_NET], lb_idx, idx)
+                df.at[idx, LRG_IDX] = metrics.calculate_cot_index(df[const.LARGE_NET], lb_idx, idx)
+                df.at[idx, SML_IDX] = metrics.calculate_cot_index(df[const.SMALL_NET], lb_idx, idx)
+                df.at[idx, COMM_NORM_IDX] = metrics.calculate_cot_index(df[const.COMM_NET_NORM], lb_idx, idx)
+                df.at[idx, LRG_NORM_IDX] = metrics.calculate_cot_index(df[const.LARGE_NET_NORM], lb_idx, idx)
+                df.at[idx, SML_NORM_IDX] = metrics.calculate_cot_index(df[const.SMALL_NET_NORM], lb_idx, idx)
+                df.at[idx, WILLCO] = metrics.calculate_willco(df[const.COMM_PCT_OI], lb_idx, idx)
+
+        # Calculate Liquidity Strain Ratio and the Price Hedging Divergence over the entire series directly
+        df[LIQUIDITY_STRAIN] = metrics.calculate_liquidity_strain_ratio_index(df[const.COMM_NET], df[const.LARGE_NET], lb_weeks)
+        if const.CLOSING_PRICE in df.columns:
+            df[PRICE_HEDGING_DIV] = metrics.calculate_price_hedging_divergence(df, const.CLOSING_PRICE, const.COMM_NET, velocity_window=3, macro_window=lb_weeks)
+        else:
+            df[PRICE_HEDGING_DIV] = 0.0
+
+        three_year_lb_weeks = 52 * 3
+        for idx in range(len(df)):
+            if three_year_lb_weeks < 0 or idx < three_year_lb_weeks:
+                df.at[idx, const.COMM_3Y_IDX] = None
+                df.at[idx, const.COMM_3Y_IDX_NORM] = None
+            else:
+                lb_idx = idx - three_year_lb_weeks
+                df.at[idx, const.COMM_3Y_IDX] = metrics.calculate_cot_index(df[const.COMM_NET], lb_idx, idx)
+                df.at[idx, const.COMM_3Y_IDX_NORM] = metrics.calculate_cot_index(df[const.COMM_NET_NORM], lb_idx, idx)
+
+        lrg_sentiment_lb_weeks = 15
+        for idx in range(len(df)):
+            if lrg_sentiment_lb_weeks < 0 or idx < lrg_sentiment_lb_weeks:
+                df.at[idx, const.LW_LRG_SENTIMENT] = None
+            else:
+                lb_idx = idx - lrg_sentiment_lb_weeks
+                df.at[idx, const.LW_LRG_SENTIMENT] = metrics.calculate_cot_index(df[const.LARGE_NET], lb_idx, idx)
+
+        OI_ZSCORE = const.OPEN_INTEREST + const.get_lookback_header_str(lookback) + const.ZSCORE
+        if const.OPEN_INTEREST_XLS in df.columns:
+            oi_series = df[const.OPEN_INTEREST_XLS]
+        elif const.OPEN_INTEREST in df.columns:
+            oi_series = df[const.OPEN_INTEREST]
+        else:
+            oi_series = pd.Series(1e-9, index=df.index)
+        df[OI_ZSCORE] = metrics.calculate_z_score(oi_series, lb_weeks)
+
+        # Z-Score
+        zscore_col_header_name = const.get_lookback_header_str(lookback) + const.ZSCORE
+        COMM_ZS = const.COMM + zscore_col_header_name
+        LRG_ZS = const.LARGE + zscore_col_header_name
+        SML_ZS = const.SMALL + zscore_col_header_name
+        df[COMM_ZS] = metrics.calculate_z_score(df[const.COMM_NET], lb_weeks)
+        df[LRG_ZS] = metrics.calculate_z_score(df[const.LARGE_NET], lb_weeks)
+        df[SML_ZS] = metrics.calculate_z_score(df[const.SMALL_NET], lb_weeks)
+
+        zscore_norm_col_header_name = zscore_col_header_name + const.NORMALIZED
+        COMM_ZS_NORM = const.COMM + zscore_norm_col_header_name
+        LRG_ZS_NORM = const.LARGE + zscore_norm_col_header_name
+        SML_ZS_NORM = const.SMALL + zscore_norm_col_header_name
+        df[COMM_ZS_NORM] = metrics.calculate_z_score(df[const.COMM_NET_NORM], lb_weeks)
+        df[LRG_ZS_NORM] = metrics.calculate_z_score(df[const.LARGE_NET_NORM], lb_weeks)
+        df[SML_ZS_NORM] = metrics.calculate_z_score(df[const.SMALL_NET_NORM], lb_weeks)
+
+        # Spearman Correlation
+        spearman_header_name = const.get_lookback_header_str(lookback) + const.SPEARMAN
+        COMM_SPR = const.COMM + spearman_header_name
+        LRG_SPR = const.LARGE + spearman_header_name
+        SML_SPR = const.SMALL + spearman_header_name
+        spearman_norm_header_name = spearman_header_name + const.NORMALIZED
+        COMM_NORM_SPR = const.COMM + spearman_norm_header_name
+        LRG_NORM_SPR = const.LARGE + spearman_norm_header_name
+        SML_NORM_SPR = const.SMALL + spearman_norm_header_name
+        if const.CLOSING_PRICE in df.columns:
+            df[COMM_SPR] = metrics.calculate_spearman_correlation_vectorized(df, const.CLOSING_PRICE, const.COMM_NET, lb_weeks)
+            df[LRG_SPR] = metrics.calculate_spearman_correlation_vectorized(df, const.CLOSING_PRICE, const.LARGE_NET, lb_weeks)
+            df[SML_SPR] = metrics.calculate_spearman_correlation_vectorized(df, const.CLOSING_PRICE, const.SMALL_NET, lb_weeks)
+            df[COMM_NORM_SPR] = metrics.calculate_spearman_correlation_vectorized(df, const.CLOSING_PRICE, const.COMM_NET_NORM, lb_weeks)
+            df[LRG_NORM_SPR] = metrics.calculate_spearman_correlation_vectorized(df, const.CLOSING_PRICE, const.LARGE_NET_NORM, lb_weeks)
+            df[SML_NORM_SPR] = metrics.calculate_spearman_correlation_vectorized(df, const.CLOSING_PRICE, const.SMALL_NET_NORM, lb_weeks)
+        else:
+            df[COMM_SPR] = 0
+            df[LRG_SPR] = 0
+            df[SML_SPR] = 0
+
+        # Momentum Index
+        momentum_idx_header_name = const.get_lookback_header_str(lookback) + const.MOMENTUM
+        idx_col_name = const.get_lookback_header_str(lookback) + const.IDX
+        idx_norm_col_name = idx_col_name + const.NORMALIZED
+        COMM_MOVE = const.COMM + momentum_idx_header_name
+        LRG_MOVE = const.LARGE + momentum_idx_header_name
+        SML_MOVE = const.SMALL + momentum_idx_header_name
+        df[COMM_MOVE] = metrics.calculate_momentum_index(df[const.COMM + idx_col_name])
+        df[LRG_MOVE] = metrics.calculate_momentum_index(df[const.LARGE + idx_col_name])
+        df[SML_MOVE] = metrics.calculate_momentum_index(df[const.SMALL + idx_col_name])
+
+        # Week-over-week twins of the same three. Separate from the MOMENTUM_PERIOD
+        # family rather than replacing it: the 6-week change reads as a trend, this
+        # reads as "what moved at this release".
+        #
+        # Both bases, built in one loop so they cannot drift apart. The normalized twin
+        # is what lets a movers list follow the app's positioning model: without it,
+        # ranking would have to stay on raw contracts while the setup badges came from
+        # the normalized basis, which is the mixed rule models.py exists to prevent.
+        wow_header = const.get_lookback_header_str(lookback) + const.WOW_MOVE
+        wow_norm_header = wow_header + const.NORMALIZED
+        for group in (const.COMM, const.LARGE, const.SMALL):
+            df[group + wow_header] = metrics.calculate_momentum_index(
+                df[group + idx_col_name], periods=const.WOW_PERIOD
+            )
+            df[group + wow_norm_header] = metrics.calculate_momentum_index(
+                df[group + idx_norm_col_name], periods=const.WOW_PERIOD
+            )
+
+        momentum_norm_idx_header_name = momentum_idx_header_name + const.NORMALIZED
+        COMM_MOVE_NORM = const.COMM + momentum_norm_idx_header_name
+        LRG_MOVE_NORM = const.LARGE + momentum_norm_idx_header_name
+        SML_MOVE_NORM = const.SMALL + momentum_norm_idx_header_name
+        df[COMM_MOVE_NORM] = metrics.calculate_momentum_index(df[const.COMM + idx_norm_col_name])
+        df[LRG_MOVE_NORM] = metrics.calculate_momentum_index(df[const.LARGE + idx_norm_col_name])
+        df[SML_MOVE_NORM] = metrics.calculate_momentum_index(df[const.SMALL + idx_norm_col_name])
+
+        # Return a defragmented dataframe
+        return df.copy()
+
+    def retrieve_report_date_closing_prices(self, instrument, years, force_refresh=False, price_data=None):
+        os.makedirs(const.CACHE_DIR, exist_ok=True)
+
+        df = instrument.df
+        symbol = instrument.symbol
+        # Yahoo Finance ticker format for futures contracts
+        ticker = f"{symbol}=F"
+
+        # Check if cache exists
+        cache_path = os.path.join(const.CACHE_DIR, f"{symbol}.parquet")
+        fallback_df = None
+        if os.path.exists(cache_path):
+            try:
+                fallback_df = pd.read_parquet(cache_path)
+            except Exception as e:
+                print(f"\n\nError reading cache fallback for {symbol}: {e}\n\n")
+
+        # Check if cache is fresh and up-to-date
+        if fallback_df is not None and not force_refresh:
+            # Schema guard: if this instrument now carries disaggregated MM positions
+            # (merged in populate_instruments) but the cache predates the true-MM
+            # concentration columns, the cache is stale regardless of its date.
+            mm_merged = const.MM_LONG_POS_XLS in instrument.df.columns
+            cache_has_mm = const.MM_LONG_PSIZE_IDX in fallback_df.columns
+            lev_merged = const.LEV_LONG_POS_XLS in instrument.df.columns
+            cache_has_lev = const.LEV_LONG_PSIZE_IDX in fallback_df.columns
+            schema_stale = (mm_merged and not cache_has_mm) or (lev_merged and not cache_has_lev)
+            if const.REPORT_DATE_XLS in fallback_df.columns and not df.empty and not schema_stale:
+                latest_raw_date = pd.to_datetime(df[const.REPORT_DATE_XLS]).max().tz_localize(None)
+                latest_cached_date = pd.to_datetime(fallback_df[const.REPORT_DATE_XLS]).max().tz_localize(None)
+                if latest_raw_date <= latest_cached_date:
+                    print(f"Using cache for {symbol} (up to date: {latest_cached_date.date()})")
+                    # Make sure instrument.df also gets the cached price columns
+                    for col in [const.OPEN_PRICE, const.HIGH_PRICE, const.LOW_PRICE, const.CLOSING_PRICE]:
+                        if col in fallback_df.columns:
+                            instrument.df[col] = fallback_df[col]
+                    return fallback_df
+
+        # The per-instrument cache above missed, so read the bars from the cotdata store.
+        # This is a local parquet read, not a fetch: cotdata.get_prices never goes to the
+        # network. Say so, because a message about downloading sends anyone debugging a
+        # slow or failing boot looking for a network problem that cannot exist.
+        if price_data is None:
+            print(f"Reading {symbol} prices from the cotdata store...")
+            try:
+                import cotdata
+                start_date = f"{years[0]}-01-01"
+                price_data = cotdata.get_prices(symbol, adjustment='backadj', start=start_date)
+            except Exception as e:
+                print(f"Error reading prices for {symbol} from the store: {e}")
+                utils.cot_logger.error(f"Error reading prices for {symbol} from the store: {e}")
+                price_data = pd.DataFrame()
+
+        try:
+            if price_data is not None and not price_data.empty:
+                # Clean the price data (safely handle multi-index if multiple tokens are returned)
+                if isinstance(price_data.columns, pd.MultiIndex):
+                    price_df = price_data.loc[:, ([
+                                                   'Open', 'High', 'Low', 'Close'], ticker)].copy()
+                    price_df.columns = price_df.columns.droplevel(1)
+                else:
+                    price_df = price_data[[
+                        'Open', 'High', 'Low', 'Close']].copy()
+
+                # Convert price index to datetime and force nanosecond resolution
+                price_df.index = pd.to_datetime(price_df.index).tz_localize(
+                    None).astype('datetime64[ns]')
+
+                # Aggregate daily data into true weekly bars ending on Tuesdays (COT Report Day)
+                weekly_price_df = price_df.resample('W-TUE').agg({
+                    'Open': 'first',
+                    'High': 'max',
+                    'Low': 'min',
+                    'Close': 'last'
+                })
+
+                # OHLC Repair
+                weekly_price_df['Open'] = weekly_price_df['Open'].fillna(weekly_price_df['Close'])
+                weekly_price_df['High'] = weekly_price_df['High'].fillna(weekly_price_df['Close'])
+                weekly_price_df['Low'] = weekly_price_df['Low'].fillna(weekly_price_df['Close'])
+                weekly_price_df = weekly_price_df.dropna(subset=['Close'])
+
+                # Ensure COT dates match resolution
+                df[const.REPORT_DATE_XLS] = pd.to_datetime(
+                    df[const.REPORT_DATE_XLS]).dt.tz_localize(None).astype('datetime64[ns]')
+
+                weekly_price_df = weekly_price_df.rename(columns={
+                    'Open': const.OPEN_PRICE,
+                    'High': const.HIGH_PRICE,
+                    'Low': const.LOW_PRICE,
+                    'Close': const.CLOSING_PRICE
+                })
+
+                # Clamp live candle
+                actual_latest_date = price_df.index.max()
+                if not weekly_price_df.empty and weekly_price_df.index[-1] > actual_latest_date:
+                    idx = weekly_price_df.index.tolist()
+                    idx[-1] = actual_latest_date
+                    weekly_price_df.index = pd.DatetimeIndex(idx, name=weekly_price_df.index.name)
+
+                # Merge weekly prices into COT data
+                df_sorted = df.sort_values(const.REPORT_DATE_XLS)
+
+                # Drop price columns if they already exist to prevent _x/_y suffix collisions
+                price_cols = [const.OPEN_PRICE, const.HIGH_PRICE, const.LOW_PRICE, const.CLOSING_PRICE]
+                df_sorted = df_sorted.drop(columns=[c for c in price_cols if c in df_sorted.columns])
+
+                merged = pd.merge_asof(
+                    df_sorted,
+                    weekly_price_df.sort_index(),
+                    left_on=const.REPORT_DATE_XLS,
+                    right_index=True,
+                    direction='backward'
+                )
+                merged = merged.sort_index()
+
+                # Add the 4 new columns to the instrument's dataframe
+                instrument.df[const.OPEN_PRICE] = merged[const.OPEN_PRICE]
+                instrument.df[const.HIGH_PRICE] = merged[const.HIGH_PRICE]
+                instrument.df[const.LOW_PRICE] = merged[const.LOW_PRICE]
+                instrument.df[const.CLOSING_PRICE] = merged[const.CLOSING_PRICE]
+
+                utils.cot_logger.info(f"Integrated Weekly OHLC prices for {symbol}")
+                # Save to local cache
+                instrument.df.to_parquet(cache_path)
+                self._stamp_cache_schema()
+                return instrument.df
+
+            else:
+                raise ValueError("Empty price data")
+
+        except Exception as e:
+            print(f"Error processing price for {symbol}: {e}")
+            utils.cot_logger.error(f"Error processing price for {symbol}: {e}")
+
+            if fallback_df is not None and const.CLOSING_PRICE in fallback_df.columns:
+                print(f"Falling back to existing cached prices for {symbol}.")
+                # Merge new COT data with existing cached prices
+                for col in [const.OPEN_PRICE, const.HIGH_PRICE, const.LOW_PRICE, const.CLOSING_PRICE]:
+                    if col in instrument.df.columns:
+                        instrument.df = instrument.df.drop(columns=[col])
+
+                prices_only = fallback_df[[const.REPORT_DATE_XLS, const.OPEN_PRICE, const.HIGH_PRICE, const.LOW_PRICE, const.CLOSING_PRICE]].drop_duplicates(subset=[const.REPORT_DATE_XLS])
+                merged = pd.merge(instrument.df, prices_only, on=const.REPORT_DATE_XLS, how='left')
+
+                for col in [const.OPEN_PRICE, const.HIGH_PRICE, const.LOW_PRICE, const.CLOSING_PRICE]:
+                    merged[col] = merged[col].fillna(0)
+
+                instrument.df = merged
+                return instrument.df
+            else:
+                df[const.OPEN_PRICE] = 0
+                df[const.HIGH_PRICE] = 0
+                df[const.LOW_PRICE] = 0
+                df[const.CLOSING_PRICE] = 0
+                # Save to local cache if no fallback exists
+                instrument.df.to_parquet(cache_path)
+                self._stamp_cache_schema()
+                return instrument.df
+
+    def calculate_weekly_data(self, force_refresh=False):
+        # Prices come from the cotdata store, one instrument at a time. There used to be
+        # a batch backfill here (Databento), which needed a pre-pass to decide which
+        # instruments to fetch and a map to hand the results back. Both outlived it: the
+        # pre-pass read every cached parquet to build a list nothing consumed, and the
+        # map was always empty, so price_data was always None. Removed -- the per-symbol
+        # freshness check in retrieve_report_date_closing_prices is the real one.
+        for instrument in self.supported_instruments:
+            inst_obj = self.instruments[instrument]
+
+            # Retrieve report date closing prices first (from cache or the store).
+            # This avoids discarding calculated columns if the cache is older than the code changes
+            df = self.retrieve_report_date_closing_prices(
+                inst_obj,
+                self.years,
+                force_refresh=force_refresh,
+            )
+            df[const.PRICE_CHANGE] = (df[const.CLOSING_PRICE].pct_change() * 100).fillna(0).round(1)
+
+            # 2. Add/calculate all weekly data on the retrieved DataFrame
+            # Add new columns for net positions
+            df[const.COMM_NET] = df[const.COMM_LONG_POS_XLS] - df[const.COMM_SHORT_POS_XLS]
+            df[const.LARGE_NET] = df[const.LARGE_LONG_POS_XLS] - df[const.LARGE_SHORT_POS_XLS]
+            df[const.SMALL_NET] = df[const.SMALL_LONG_POS_XLS] - df[const.SMALL_SHORT_POS_XLS]
+            df[const.COMM_NET_CHANGE_PCT] = (df[const.COMM_NET].pct_change() * 100).fillna(0).round(1)
+
+            # Calculate the COT-MACD metrics
+            macd_line, signal_line, macd_hist = metrics.calculate_cot_macd(df[const.COMM_NET])
+            df[const.COMM_MACD_LINE] = macd_line
+            df[const.COMM_MACD_SIGNAL] = signal_line
+            df[const.COMM_MACD_HIST] = macd_hist
+
+            # Generate Algorithmic Crossover Signals
+            # A bullish cross happens when the histogram flips from negative to positive
+            df[const.COMM_MACD_BULL_CROSS] = (df[const.COMM_MACD_HIST] > 0) & (df[const.COMM_MACD_HIST].shift(1) <= 0)
+            df[const.COMM_MACD_BEAR_CROSS] = (df[const.COMM_MACD_HIST] < 0) & (df[const.COMM_MACD_HIST].shift(1) >= 0)
+
+            # Check for sign change in Net Positions
+            df[const.COMM_FLIP] = (df[const.COMM_NET] * df[const.COMM_NET].shift(1)) < 0
+            df[const.LARGE_FLIP] = (df[const.LARGE_NET] * df[const.LARGE_NET].shift(1)) < 0
+            df[const.SMALL_FLIP] = (df[const.SMALL_NET] * df[const.SMALL_NET].shift(1)) < 0
+
+            # Add new columns for net positions normalized by open interest
+            df[const.COMM_NET_NORM] = df[const.COMM_NET] / (df[const.OPEN_INTEREST_XLS] + 1e-9)
+            df[const.LARGE_NET_NORM] = df[const.LARGE_NET] / (df[const.OPEN_INTEREST_XLS] + 1e-9)
+            df[const.SMALL_NET_NORM] = df[const.SMALL_NET] / (df[const.OPEN_INTEREST_XLS] + 1e-9)
+            df[const.COMM_NET_CHANGE_NORM] = (df[const.COMM_NET_NORM].pct_change() * 100).fillna(0).round(1)
+
+            # We only estimate the last row (current week) since that's the only one that would have a gap between Tuesday and Friday
+            df[const.COMM_NET_EST] = df[const.COMM_NET]
+            df[const.LARGE_NET_EST] = df[const.LARGE_NET]
+            df[const.SMALL_NET_EST] = df[const.SMALL_NET]
+
+            # Add new columns for position as percent of open interest
+            # Adding epsilon (1e-9) to denominator prevents division by zero
+            df[const.COMM_PCT_OI] = round((df[const.COMM_NET] / (df[const.OPEN_INTEREST_XLS] + 1e-9)) * 100, 2)
+            df[const.LARGE_PCT_OI] = round((df[const.LARGE_NET] / (df[const.OPEN_INTEREST_XLS] + 1e-9)) * 100, 2)
+            df[const.SMALL_PCT_OI] = round((df[const.SMALL_NET] / (df[const.OPEN_INTEREST_XLS] + 1e-9)) * 100, 2)
+
+            df = CotIndexer.process_lookback(["Custom", self.instruments[instrument].custom_lookback], self.instruments[instrument].symbol, df)
+            for lookback in self.lookbacks:
+                df = CotIndexer.process_lookback(lookback, self.instruments[instrument].symbol, df)
+
+            # Return a defragmented dataframe
+            self.instruments[instrument].df = df.copy()
+
+            # Save the final calculated DataFrame to Parquet cache
+            cache_path = os.path.join(const.CACHE_DIR, f"{self.instruments[instrument].symbol}.parquet")
+            self.instruments[instrument].df.to_parquet(cache_path)
+
+
+
+    def collect_symbol_summary_results(self, instrument):
+        df = self.instruments[instrument].df
+
+        # Construct summary dataframe with only relevant columns for the summary csv
+        summary_df = pd.DataFrame()
+        summary_df[const.DATE] = df[const.REPORT_DATE_XLS]
+        summary_df[const.SYMBOL] = self.instruments[instrument].symbol
+        summary_df[const.OPEN_INTEREST] = df[const.OPEN_INTEREST_XLS]
+        summary_df[const.COMM_NET] = df[const.COMM_NET]
+        summary_df[const.LARGE_NET] = df[const.LARGE_NET]
+        summary_df[const.SMALL_NET] = df[const.SMALL_NET]
+        summary_df[const.CLOSING_PRICE] = df[const.CLOSING_PRICE]
+
+        # Grab index values
+        index_cols = [col for col in df.columns if const.IDX in col]
+        for col in index_cols:
+            summary_df[col] = df[col]
+
+        # Grab z-score values
+        index_cols = [col for col in df.columns if const.ZSCORE in col]
+        for col in index_cols:
+            summary_df[col] = df[col]
+
+        # Grab Spearman values
+        index_cols = [col for col in df.columns if const.SPEARMAN in col]
+        for col in index_cols:
+            summary_df[col] = df[col]
+
+        # Grab WILLCO values
+        index_cols = [col for col in df.columns if const.WILLCO in col]
+        for col in index_cols:
+            summary_df[col] = df[col]
+
+        return summary_df
+
+    def collect_symbol_detailed_results(self, instrument):
+        # Construct detailed dataframe with all columns
+        df = self.instruments[instrument].df
+        detailed_df = df.copy()
+        return detailed_df
+
+    def export_cot_data_to_csv(self):
+        working_dir = os.getcwd()
+        csv_data_detailed = 'data/csv_data/detailed'
+        csv_data_summary = 'data/csv_data/summary'
+        os.makedirs(csv_data_detailed, exist_ok=True)
+        os.makedirs(csv_data_summary, exist_ok=True)
+
+        for instrument in self.supported_instruments:
+            df = self.instruments[instrument].df
+            symbol = self.instruments[instrument].symbol
+
+            data_file_name = f'{symbol}.csv'
+            detailed_csv_path = os.path.join(
+                working_dir, csv_data_detailed, "detailed_" + data_file_name)
+            summary_csv_path = os.path.join(
+                working_dir, csv_data_summary, "summary_" + data_file_name)
+
+            # Write everything to the detailed csv
+            df.to_csv(detailed_csv_path, sep=",", index=True, header=True)
+
+            # Construct summary dataframe with only relevant columns for the summary csv
+            summary_df = self.collect_symbol_summary_results(instrument)
+            summary_df.to_csv(summary_csv_path, sep=",",
+                              index=False, header=True)
+
+    def export_weekly_summary_results_to_csv(self):
+        working_dir = os.getcwd()
+        csv_data = 'data/csv_data'
+        os.makedirs(csv_data, exist_ok=True)
+        summary_csv_path = os.path.join(
+            working_dir, csv_data, "positioning_summary.csv")
+
+        cols = [const.DATE, const.SYMBOL, const.NAME, const.LOOKBACK,
+                const.COMM_CUSTOM_IDX, const.LARGE_CUSTOM_IDX, const.SMALL_CUSTOM_IDX,
+                const.COMM_26_IDX, const.LARGE_26_IDX, const.SMALL_26_IDX,
+                const.COMM_52_IDX, const.LARGE_52_IDX, const.SMALL_52_IDX,
+                const.COMM_CUSTOM_ZSCORE, const.LARGE_CUSTOM_ZSCORE, const.SMALL_CUSTOM_ZSCORE,
+                const.COMM_26_ZSCORE, const.LARGE_26_ZSCORE, const.SMALL_26_ZSCORE,
+                const.COMM_52_ZSCORE, const.LARGE_52_ZSCORE, const.SMALL_52_ZSCORE,
+                const.COMM_CUSTOM_CORR, const.LARGE_CUSTOM_CORR, const.SMALL_CUSTOM_CORR,
+                const.COMM_26_CORR, const.LARGE_26_CORR, const.SMALL_26_CORR,
+                const.COMM_52_CORR, const.LARGE_52_CORR, const.SMALL_52_CORR,
+                ]
+        positioning_df = pd.DataFrame(columns=cols)
+
+        for asset in self.asset_class_map:
+            instruments = self.get_assets_for_asset_class(asset)
+            for instrument_name in instruments:
+                instrument = self.get_instrument_from_name(instrument_name)
+                df = instrument.df
+
+                new_df = pd.DataFrame(
+                    [[df.iloc[-1][const.REPORT_DATE_XLS].date(), instrument.symbol, instrument.name, instrument.custom_lookback,
+                      df.iloc[-1][const.COMM_CUSTOM_IDX], df.iloc[-1][const.LARGE_CUSTOM_IDX], df.iloc[-1][const.SMALL_CUSTOM_IDX],
+                      df.iloc[-1][const.COMM_26_IDX], df.iloc[-1][const.LARGE_26_IDX], df.iloc[-1][const.SMALL_26_IDX],
+                      df.iloc[-1][const.COMM_52_IDX], df.iloc[-1][const.LARGE_52_IDX], df.iloc[-1][const.SMALL_52_IDX],
+
+                      df.iloc[-1][const.COMM_CUSTOM_ZSCORE], df.iloc[-1][const.LARGE_26_ZSCORE], df.iloc[-1][const.SMALL_CUSTOM_ZSCORE],
+                      df.iloc[-1][const.COMM_26_ZSCORE], df.iloc[-1][const.LARGE_26_ZSCORE], df.iloc[-1][const.SMALL_26_ZSCORE],
+                      df.iloc[-1][const.COMM_52_ZSCORE], df.iloc[-1][const.LARGE_52_ZSCORE], df.iloc[-1][const.SMALL_52_ZSCORE],
+
+                      df.iloc[-1][const.COMM_CUSTOM_CORR], df.iloc[-1][const.LARGE_CUSTOM_CORR], df.iloc[-1][const.SMALL_CUSTOM_CORR],
+                      df.iloc[-1][const.COMM_26_CORR], df.iloc[-1][const.LARGE_26_CORR], df.iloc[-1][const.SMALL_26_CORR],
+                      df.iloc[-1][const.COMM_52_CORR], df.iloc[-1][const.LARGE_52_CORR], df.iloc[-1][const.SMALL_52_CORR],
+                      ]], columns=positioning_df.columns)
+                if positioning_df.empty:
+                    positioning_df = new_df
+                else:
+                    positioning_df = pd.concat([positioning_df, new_df])
+
+        positioning_df.to_csv(summary_csv_path, sep=",",
+                              index=False, header=True)
+
+    def export_real_test_data_to_csv(self):
+        # Event List format: https://mhptrading.com/docs/topics/idh-topic490.htm
+        # The first row of the file must contain column names from the following list:
+        # •Symbol – the symbol for which the event occurred
+        # •Date – the date of the event
+        # •Time – the time of the event (optional)
+        # •Type – any numeric code > 0 --
+        #         Here type 1 is Commercials Index, 2 is Large Specs Index, and 3 is Small Specs Index
+        #              type 4 is Commercials Net Position, 5 is Large Specs Net Position, and 6 is Small Specs Net Position
+        # •Value – any numeric value (e.g. dividend amount, or EPS, or index constituency flags)
+        working_dir = os.getcwd()
+        real_test_data_dir = self.real_test_data_dir
+        os.makedirs(real_test_data_dir, exist_ok=True)
+
+        for instrument in self.supported_instruments:
+            symbol = self.instruments[instrument].symbol
+            lb = self.instruments[instrument].custom_lookback
+            data_file_name = f'{symbol}.csv'
+            real_test_csv_path = os.path.join(
+                working_dir, real_test_data_dir, "RT_event_list_lb_" + str(lb) + "_" + data_file_name)
+            real_test_df = self.create_real_test_event_asset_list(instrument)
+            real_test_df.to_csv(real_test_csv_path, sep=",",
+                                index=True, header=True)
+
+    def create_real_test_event_asset_list(self, instrument):
+        df = self.instruments[instrument].df
+        #
+        # Indexes
+        #
+        # Add commercials
+        commercial_idx_df = pd.DataFrame()
+        commercial_idx_df[const.DATE] = df[const.REPORT_DATE_XLS].apply(
+            lambda x: x.date())
+        commercial_idx_df[const.SYMBOL] = [
+            self.instruments[instrument].symbol] * len(df[const.REPORT_DATE_XLS])
+        commercial_idx_df["Type"] = 1  # Commercials index
+        commercial_idx_df["Value"] = df[const.COMM_CUSTOM_IDX]
+        commercial_idx_df = commercial_idx_df[commercial_idx_df["Value"] != -1]
+
+        # Add large specs
+        large_specs_idx_df = pd.DataFrame()
+        large_specs_idx_df[const.DATE] = df[const.REPORT_DATE_XLS].apply(
+            lambda x: x.date())
+        large_specs_idx_df[const.SYMBOL] = [
+            self.instruments[instrument].symbol] * len(df[const.REPORT_DATE_XLS])
+        large_specs_idx_df["Type"] = 2  # Large specs index
+        large_specs_idx_df["Value"] = df[const.LARGE_CUSTOM_IDX]
+        large_specs_idx_df = large_specs_idx_df[large_specs_idx_df["Value"] != -1]
+
+        # Add small specs
+        small_specs_idx_df = pd.DataFrame()
+        small_specs_idx_df[const.DATE] = df[const.REPORT_DATE_XLS].apply(
+            lambda x: x.date())
+        small_specs_idx_df[const.SYMBOL] = [
+            self.instruments[instrument].symbol] * len(df[const.REPORT_DATE_XLS])
+        small_specs_idx_df["Type"] = 3  # Small specs index
+        small_specs_idx_df["Value"] = df[const.SMALL_CUSTOM_IDX]
+        small_specs_idx_df = small_specs_idx_df[small_specs_idx_df["Value"] != -1]
+
+        #
+        # Net Positions
+        #
+        # Add commercials
+        commercial_pos_df = pd.DataFrame()
+        commercial_pos_df[const.DATE] = df[const.REPORT_DATE_XLS].apply(
+            lambda x: x.date())
+        commercial_pos_df[const.SYMBOL] = [
+            self.instruments[instrument].symbol + "_B"] * len(df[const.REPORT_DATE_XLS])
+        commercial_pos_df["Type"] = 4  # Commercials net position
+        commercial_pos_df["Value"] = df[const.COMM_NET]
+        commercial_pos_df = commercial_pos_df[commercial_pos_df["Value"] != -1]
+
+        # Add large specs
+        large_specs_pos_df = pd.DataFrame()
+        large_specs_pos_df[const.DATE] = df[const.REPORT_DATE_XLS].apply(
+            lambda x: x.date())
+        large_specs_pos_df[const.SYMBOL] = [
+            self.instruments[instrument].symbol + "_B"] * len(df[const.REPORT_DATE_XLS])
+        large_specs_pos_df["Type"] = 5  # Large specs net position
+        large_specs_pos_df["Value"] = df[const.LARGE_NET]
+        large_specs_pos_df = large_specs_pos_df[large_specs_pos_df["Value"] != -1]
+
+        # Add small specs
+        small_specs_pos_df = pd.DataFrame()
+        small_specs_pos_df[const.DATE] = df[const.REPORT_DATE_XLS].apply(
+            lambda x: x.date())
+        small_specs_pos_df[const.SYMBOL] = [
+            self.instruments[instrument].symbol + "_B"] * len(df[const.REPORT_DATE_XLS])
+        small_specs_pos_df["Type"] = 6  # Small specs net position
+        small_specs_pos_df["Value"] = df[const.SMALL_NET]
+        small_specs_pos_df = small_specs_pos_df[small_specs_pos_df["Value"] != -1]
+
+        # Concatenate into one dataframe
+        result_df = commercial_idx_df
+        result_df = pd.concat([result_df, commercial_idx_df])
+        result_df = pd.concat([result_df, large_specs_idx_df])
+        result_df = pd.concat([result_df, large_specs_pos_df])
+        result_df = pd.concat([result_df, small_specs_idx_df])
+        result_df = pd.concat([result_df, small_specs_pos_df])
+
+        return result_df
+
+    def get_asset_classes(self, sort=True, exclude_financial=False, include_heldout=False):
+        # Default excludes role:heldout markets so neither the dashboard nor a
+        # config's asset_classes universe (resolve_universe) picks them up — they are
+        # collected + indexed but out of selection. Pass include_heldout=True for the
+        # full set. A class whose every member is heldout drops out entirely.
+        src = self.asset_class_map if include_heldout else self.plotted_asset_class_map()
+        if exclude_financial:
+            classes = [asset for asset in src if metrics.is_commodity(asset)]
+        else:
+            classes = list(src)
+        if sort:
+            classes.sort()
+        return classes
+
+    def get_default_asset_class(self, exclude_financial=False):
+        if not (len(self.asset_class_map)) == 0:
+            if exclude_financial:
+                for asset in self.asset_class_map:
+                    if metrics.is_commodity(asset):
+                        return asset
+            else:
+                if 'Equities' in self.asset_class_map:
+                    return 'Equities'
+                else:
+                    for asset in self.asset_class_map:
+                        return asset
+        return ""
+
+    def get_assets_for_asset_class(self, asset_class, sort=True, include_heldout=False):
+        # Default excludes role:heldout members (see get_asset_classes) — this is the
+        # method resolve_universe expands a config's asset_classes through, so held-out
+        # markets must NOT leak into the deployed/plotted universe. Access them by
+        # explicit symbol (get_instrument_from_symbol) or include_heldout=True.
+        src = self.asset_class_map if include_heldout else self.plotted_asset_class_map()
+        result = list(src.get(asset_class, set()))
+        if sort:
+            result.sort()
+        return result
+
+    def get_instrument_names(self):
+        result = []
+        for code in self.instruments:
+            result.append(self.instruments[code].symbol)
+        return result
+
+    def get_instrument_symbol_from_name(self, name):
+        for code in self.instruments:
+            if self.instruments[code].name == name:
+                return self.instruments[code].symbol
+        return None
+
+    def get_instrument_from_code(self, code):
+        if code in self.instruments:
+            return self.instruments[code]
+        return None
+
+    def get_instrument_code_from_name(self, name):
+        for code in self.instruments:
+            if self.instruments[code].name == name:
+                return code
+        return None
+
+    def get_instrument_from_name(self, name):
+        for inst_code in self.instruments:
+            if self.instruments[inst_code].name == name:
+                return self.instruments[inst_code]
+        return None
+
+    def get_instrument_from_symbol(self, symbol):
+        for inst_code in self.instruments:
+            if self.instruments[inst_code].symbol == symbol:
+                return self.instruments[inst_code]
+        return None
+
+    def is_equity(self, name):
+        if "quit" in self.get_instrument_from_name(name).asset_class:
+            return True
+        return False
+
+    # Sized to hold the whole board rather than a round number: 42 instruments x 2 bases
+    # x 3 lookbacks = 252 distinct keys. At the previous 128 a single flip of the Home
+    # page's lookback or model selector evicted frames the *previous* selection was still
+    # using, so toggling back and forth rebuilt frames that had just been computed.
+    #
+    # The ceiling this buys is real memory, not a free win. Each frame is a fresh copy
+    # built column by column (432 x 242, ~2.9MB deep), so a fully populated cache is
+    # ~730MB resident. Raising this further without re-measuring that number is how the
+    # server box runs out of RAM.
+    @lru_cache(maxsize=256)
+    def get_symbols_data(self, name, lookback, basis=const.BASIS_RAW):
+        """Weekly frame for one instrument, with the generic alias columns the UI and
+        the ML dataset consume.
+
+        `basis` selects which net-position series the level metrics are built from:
+        BASIS_RAW (net contracts) or BASIS_OI_NORM (net / open interest). Both families
+        are precomputed by process_lookback, so this only picks which one lands on the
+        aliases. Every alias moves together, otherwise the signal engine would mix a
+        normalized index with a raw z-score inside one condition set.
+        """
+        if basis not in const.BASIS_CHOICES:
+            raise ValueError(f"unknown basis {basis!r}, expected one of {const.BASIS_CHOICES}")
+        normalized = basis == const.BASIS_OI_NORM
+        lookback = " " + lookback
+
+        # If the downloader found new data, clear the cache inside the web process!
+        current_db_time = cotDatabase.latest_update_timestamp()
+        if current_db_time != self.last_known_db_time:
+            print(f"\n\n!!!!New database data detected! Clearing RAM cache. {current_db_time}\n\n")
+            utils.cot_logger.warning("New database data detected! Clearing RAM cache.")
+            self.get_symbols_data.__func__.cache_clear()
+            self.get_asset_class_z_score_heat.__func__.cache_clear()
+            self.get_asset_class_index_heat.__func__.cache_clear()
+            self.get_positioning_table_by_asset_class.__func__.cache_clear()
+            self.last_known_db_time = current_db_time
+            self.populate_instruments()  # Refresh instruments with new data
+            self.calculate_weekly_data()  # Recalculate all metrics for the updated data
+            utils.cot_logger.info("Updated instruments and recalculated metrics with latest database data.")
+
+        instrument = self.get_instrument_from_name(name)
+        if instrument is not None:
+            idx_col_header_name = lookback + const.IDX
+            COMM_IDX = const.COMM + idx_col_header_name
+            LRG_IDX = const.LARGE + idx_col_header_name
+            SML_IDX = const.SMALL + idx_col_header_name
+
+            norm_idx_col_header_name = idx_col_header_name + const.NORMALIZED
+            COMM_NORM_IDX = const.COMM + norm_idx_col_header_name
+            LRG_NORM_IDX = const.LARGE + norm_idx_col_header_name
+            SML_NORM_IDX = const.SMALL + norm_idx_col_header_name
+
+            zscore_col_header_name = lookback + const.ZSCORE
+            COMM_ZS = const.COMM + zscore_col_header_name
+            LRG_ZS = const.LARGE + zscore_col_header_name
+            SML_ZS = const.SMALL + zscore_col_header_name
+
+            zscore_norm_col_header_name = zscore_col_header_name + const.NORMALIZED
+            COMM_ZS_NORM = const.COMM + zscore_norm_col_header_name
+            LRG_ZS_NORM = const.LARGE + zscore_norm_col_header_name
+            SML_ZS_NORM = const.SMALL + zscore_norm_col_header_name
+
+            spearman_col_header_name = lookback + const.SPEARMAN
+            COMM_SPR = const.COMM + spearman_col_header_name
+            LRG_SPR = const.LARGE + spearman_col_header_name
+            SML_SPR = const.SMALL + spearman_col_header_name
+
+            norm_spearman_col_header_name = spearman_col_header_name + const.NORMALIZED
+            COMM_NORM_SPR = const.COMM + norm_spearman_col_header_name
+            LRG_NORM_SPR = const.LARGE + norm_spearman_col_header_name
+            SML_NORM_SPR = const.SMALL + norm_spearman_col_header_name
+
+            momentum_idx_header_name = lookback + const.MOMENTUM
+            COMM_MOM = const.COMM + momentum_idx_header_name
+            LRG_MOM = const.LARGE + momentum_idx_header_name
+            SML_MOM = const.SMALL + momentum_idx_header_name
+
+            norm_momentum_idx_header_name = momentum_idx_header_name + const.NORMALIZED
+            COMM_MOM_NORM = const.COMM + norm_momentum_idx_header_name
+            LRG_MOM_NORM = const.LARGE + norm_momentum_idx_header_name
+            SML_MOM_NORM = const.SMALL + norm_momentum_idx_header_name
+
+            wow_header = lookback + const.WOW_MOVE
+            COMM_WOW = const.COMM + wow_header
+            LRG_WOW = const.LARGE + wow_header
+            SML_WOW = const.SMALL + wow_header
+
+            norm_wow_header = wow_header + const.NORMALIZED
+            COMM_WOW_NORM = const.COMM + norm_wow_header
+            LRG_WOW_NORM = const.LARGE + norm_wow_header
+            SML_WOW_NORM = const.SMALL + norm_wow_header
+
+            # _SRC because the alias constants below are one letter-case away: the
+            # source column is "Open Interest 26 Zscore", the alias is "oi_zscore".
+            OI_ZSCORE_SRC = const.OPEN_INTEREST + lookback + const.ZSCORE
+            WILLCO_SRC = const.WILLCO + lookback
+
+            df = instrument.df
+            result = df.copy()
+
+            # Populate synthetic gap data directly on result before returning so the UI can render it!
+            clean_lb = str(lookback).strip()
+            lb_int = instrument.custom_lookback if clean_lb == "Custom" else int(clean_lb)
+
+            # Ensure result.attrs is initialized as a dict to be completely safe
+            if not hasattr(result, "attrs") or result.attrs is None:
+                result.attrs = {}
+
+            self.estimate_current_gap_positions(result, instrument.symbol, lb_int)
+
+            result[const.DATE] = df[const.REPORT_DATE_XLS]
+
+            result[const.COMMS_IDX] = df[COMM_NORM_IDX if normalized else COMM_IDX]
+            result[const.LRG_IDX] = df[LRG_NORM_IDX if normalized else LRG_IDX]
+            result[const.SML_IDX] = df[SML_NORM_IDX if normalized else SML_IDX]
+
+            # Positioning-index setup (COT-index extremes): the same detector used by
+            # the dashboard's setup highlighting, exposed as first-class feature columns
+            # so every consumer reads identical setup long/short values.
+            #
+            # The gate follows the basis. These columns are built from the aliases just
+            # assigned above, so on BASIS_OI_NORM they describe the normalized index and
+            # have to be gated by the model that owns that basis. They previously used
+            # the 95/5 CLS defaults regardless, which labelled normalized readings as
+            # setups under a rule calibrated on raw contracts.
+            _model = models.for_basis(basis)
+            _setup_long, _setup_short, _near_long, _near_short = _model.setup_masks(
+                result[const.COMMS_IDX], result[const.LRG_IDX], result[const.SML_IDX],
+                self.is_equity(name)
+            )
+            result[const.POS_IDX_SETUP_LONG] = _setup_long.astype(int)
+            result[const.POS_IDX_SETUP_SHORT] = _setup_short.astype(int)
+            result[const.POS_IDX_SETUP_NEAR_LONG] = _near_long.astype(int)
+            result[const.POS_IDX_SETUP_NEAR_SHORT] = _near_short.astype(int)
+
+            result[const.COMMS_ZSCORE] = df[COMM_ZS_NORM if normalized else COMM_ZS]
+            result[const.LRG_ZSCORE] = df[LRG_ZS_NORM if normalized else LRG_ZS]
+            result[const.SML_ZSCORE] = df[SML_ZS_NORM if normalized else SML_ZS]
+
+            result[const.COMMS_SPEARMAN] = df[COMM_NORM_SPR if normalized else COMM_SPR]
+            result[const.LRG_SPEARMAN] = df[LRG_NORM_SPR if normalized else LRG_SPR]
+            result[const.SML_SPEARMAN] = df[SML_NORM_SPR if normalized else SML_SPR]
+
+            # Index momentum is a point change *of the index above* over MOMENTUM_PERIOD
+            # weekly reports, so it follows the basis rather than staying raw. Unlike the
+            # COT-MACD, which is derived independently from Comm Net and has no normalized
+            # twin by design.
+            result[const.COMM_MOMENTUM] = df[COMM_MOM_NORM if normalized else COMM_MOM]
+            result[const.LRG_MOMENTUM] = df[LRG_MOM_NORM if normalized else LRG_MOM]
+            result[const.SML_MOMENTUM] = df[SML_MOM_NORM if normalized else SML_MOM]
+
+            # Week-over-week deltas of the same indices, following the basis for the
+            # same reason index momentum does: they are a point change *of the index
+            # above*, so a raw delta beside a normalized level would describe two
+            # different series under one name.
+            result[const.COMM_WOW] = df[COMM_WOW_NORM if normalized else COMM_WOW]
+            result[const.LRG_WOW] = df[LRG_WOW_NORM if normalized else LRG_WOW]
+            result[const.SML_WOW] = df[SML_WOW_NORM if normalized else SML_WOW]
+
+            result[const.LSR] = df.get(const.LIQUIDITY_STRAIN + const.ZSCORE + lookback)
+            result[const.PHD] = df.get(const.PRICE_HEDGING_DIV + const.ZSCORE + lookback)
+            result[const.WILLCO_ALIAS] = df.get(WILLCO_SRC)
+            result[const.OI_ZSCORE] = df.get(OI_ZSCORE_SRC)
+
+            # Legacy compatibility mapping for UI/ML expecting exactly these generic labels
+            if const.OPEN_INTEREST_XLS in df.columns:
+                result[const.OPEN_INTEREST] = df[const.OPEN_INTEREST_XLS]
+
+            # Preserve synthetic_daily from the local result if it exists
+            syn_daily = result.attrs.get('synthetic_daily') if hasattr(result, 'attrs') else None
+
+            result = metrics.append_trading_signals(result, asset_class=instrument.asset_class, normalized=normalized)
+
+            result.set_index(const.DATE, inplace=True)
+
+            # Reattach attrs after all dataframe operations to guarantee Pandas doesn't drop them
+            result.attrs = getattr(df, "attrs", {}).copy()
+            if syn_daily is not None:
+                result.attrs['synthetic_daily'] = syn_daily
+            # Stamp the basis so downstream consumers (plot labels, CSV exports) can say
+            # which one they are showing instead of guessing.
+            result.attrs['basis'] = basis
+            return result
+
+    def get_available_dates(self):
+        if not self.asset_class_map or not self.instruments:
+            return []
+
+        # Pick the first instrument to get the shared report dates
+        instrument = list(self.instruments.values())[0]
+
+        if instrument and not instrument.df.empty:
+            dates = instrument.df[const.REPORT_DATE_XLS].dt.date.sort_values(ascending=False).unique()
+            return [d.isoformat() for d in dates]
+        return []
+
+    @lru_cache(maxsize=32)
+    def get_positioning_table_by_asset_class(self, asset_classes, lookback, estimate_gap=False, target_date=None):
+        from cotmetrics.options_data import get_max_pain_for_symbol
+        # Convert list to tuple so lru_cache doesn't crash!
+        if isinstance(asset_classes, list):
+            asset_classes = tuple(asset_classes)
+
+        lookback = " " + lookback
+        idx_col_header_name = lookback + const.IDX
+        COMM_IDX = const.COMM + idx_col_header_name
+        LRG_IDX = const.LARGE + idx_col_header_name
+        SML_IDX = const.SMALL + idx_col_header_name
+
+        idx_norm_col_header_name = idx_col_header_name + const.NORMALIZED
+        COMM_NORM_IDX = const.COMM + idx_norm_col_header_name
+        LRG_NORM_IDX = const.LARGE + idx_norm_col_header_name
+        SML_NORM_IDX = const.SMALL + idx_norm_col_header_name
+
+        zscore_col_header_name = lookback + const.ZSCORE
+        COMM_ZS = const.COMM + zscore_col_header_name
+        LRG_ZS = const.LARGE + zscore_col_header_name
+        SML_ZS = const.SMALL + zscore_col_header_name
+
+        spearman_col_header_name = lookback + const.SPEARMAN
+        COMM_SPR = const.COMM + spearman_col_header_name
+        LRG_SPR = const.LARGE + spearman_col_header_name
+        SML_SPR = const.SMALL + spearman_col_header_name
+
+        norm_spearman_col_header_name = spearman_col_header_name + const.NORMALIZED
+        COMM_NORM_SPR = const.COMM + norm_spearman_col_header_name
+        LRG_NORM_SPR = const.LARGE + norm_spearman_col_header_name
+        SML_NORM_SPR = const.SMALL + norm_spearman_col_header_name
+
+        WILLCO = const.WILLCO + lookback
+        LIQUIDITY_STRAIN = const.LIQUIDITY_STRAIN + const.ZSCORE + lookback
+        OI_ZSCORE = const.OPEN_INTEREST + lookback + const.ZSCORE
+
+        momentum_idx_header_name = lookback + const.MOMENTUM
+        COMM_MOM = const.COMM + momentum_idx_header_name
+        LRG_MOM = const.LARGE + momentum_idx_header_name
+        SML_MOM = const.SMALL + momentum_idx_header_name
+
+        cols = [const.DATE, const.ASSET_CLASS, const.OPEN_INTEREST,
+                const.SYMBOL, const.NAME, const.LOOKBACK,
+                const.COMM_NET, const.LARGE_NET, const.SMALL_NET,
+                const.COMM_PCT_OI, const.LARGE_PCT_OI, const.SMALL_PCT_OI,
+                COMM_IDX, LRG_IDX, SML_IDX,
+                const.COMM_NET_EST, const.LARGE_NET_EST, const.SMALL_NET_EST,
+                const.COMM_IDX_EST, const.LARGE_IDX_EST, const.SMALL_IDX_EST,
+                const.COMM_NET_NORM, const.LARGE_NET_NORM, const.SMALL_NET_NORM,
+                COMM_NORM_IDX, LRG_NORM_IDX, SML_NORM_IDX,
+                COMM_ZS, LRG_ZS, SML_ZS,
+                COMM_MOM, LRG_MOM, SML_MOM,
+                COMM_SPR, LRG_SPR, SML_SPR,
+                COMM_NORM_SPR, LRG_NORM_SPR, SML_NORM_SPR,
+                WILLCO, LIQUIDITY_STRAIN, OI_ZSCORE, const.LW_LRG_SENTIMENT, "Max Pain", "Delta IV"]
+        positioning_df = pd.DataFrame(columns=cols)
+
+        for asset in self.asset_class_map:
+            if asset not in asset_classes:
+                continue
+
+            instruments = self.get_assets_for_asset_class(asset)
+            for instrument_name in instruments:
+                instrument = self.get_instrument_from_name(instrument_name)
+                if instrument:
+                    df = instrument.df
+
+                    if target_date:
+                        target_dt = pd.to_datetime(target_date)
+                        past_df = df[df[const.REPORT_DATE_XLS] <= target_dt]
+                        if past_df.empty:
+                            continue
+                        idx = past_df.index[-1]
+                    else:
+                        idx = len(df) - 1
+
+                    symbol = instrument.symbol
+                    if estimate_gap:
+                        self.estimate_current_gap_positions(
+                            df, symbol, instrument.custom_lookback)
+
+                        lb_weeks = utils.get_lookback_weeks(
+                            lookback, instrument)
+                        utils.cot_logger.debug(
+                            f"Calculating indexes for {symbol} with lookback {lookback} ({lb_weeks} weeks)...")
+
+                        lb_idx = idx - lb_weeks
+                        df.at[idx, const.COMM_IDX_EST] = metrics.calculate_cot_index(
+                            df[const.COMM_NET_EST], lb_idx, idx)
+                        df.at[idx, const.LARGE_IDX_EST] = metrics.calculate_cot_index(
+                            df[const.LARGE_NET_EST], lb_idx, idx)
+                        df.at[idx, const.SMALL_IDX_EST] = metrics.calculate_cot_index(
+                            df[const.SMALL_NET_EST], lb_idx, idx)
+                    else:
+                        df.at[idx, const.COMM_IDX_EST] = 0
+                        df.at[idx, const.LARGE_IDX_EST] = 0
+                        df.at[idx, const.SMALL_IDX_EST] = 0
+
+                    res = get_max_pain_for_symbol(symbol, df.loc[idx, const.REPORT_DATE_XLS].date())
+                    max_pain, delta_iv = (res["max_pain"], res["delta_iv"]) if res else (None, None)
+
+                    new_df = pd.DataFrame(
+                        [[df.loc[idx, const.REPORT_DATE_XLS].date(), instrument.asset_class, df.loc[idx, const.OPEN_INTEREST_XLS],
+                          instrument.symbol, instrument.name, instrument.custom_lookback,
+                          df.loc[idx, const.COMM_NET], df.loc[idx, const.LARGE_NET], df.loc[idx, const.SMALL_NET],
+                          df.loc[idx, const.COMM_PCT_OI], df.loc[idx, const.LARGE_PCT_OI], df.loc[idx, const.SMALL_PCT_OI],
+                          df.loc[idx, COMM_IDX], df.loc[idx, LRG_IDX], df.loc[idx, SML_IDX],
+                          df.loc[idx, const.COMM_NET_EST], df.loc[idx, const.LARGE_NET_EST], df.loc[idx, const.SMALL_NET_EST],
+                          df.loc[idx, const.COMM_IDX_EST], df.loc[idx, const.LARGE_IDX_EST], df.loc[idx, const.SMALL_IDX_EST],
+                          round(df.loc[idx, const.COMM_NET_NORM], 2), round(df.loc[idx, const.LARGE_NET_NORM], 2), round(df.loc[idx, const.SMALL_NET_NORM], 2),
+                          df.loc[idx, COMM_NORM_IDX], df.loc[idx, LRG_NORM_IDX], df.loc[idx, SML_NORM_IDX],
+                          round(df.loc[idx, COMM_ZS], 2), round(df.loc[idx, LRG_ZS], 2), round(df.loc[idx, SML_ZS], 2),
+                          round(df.loc[idx, COMM_MOM], 2), round(df.loc[idx, LRG_MOM], 2), round(df.loc[idx, SML_MOM], 2),
+                          round(df.loc[idx, COMM_SPR], 2), round(df.loc[idx, LRG_SPR], 2), round(df.loc[idx, SML_SPR], 2),
+                          round(df.loc[idx, COMM_NORM_SPR], 2), round(df.loc[idx, LRG_NORM_SPR], 2), round(df.loc[idx, SML_NORM_SPR], 2),
+                          df.loc[idx, WILLCO], round(df.loc[idx, LIQUIDITY_STRAIN], 2), round(df.loc[idx, OI_ZSCORE], 2), df.loc[idx, const.LW_LRG_SENTIMENT], max_pain, delta_iv
+                          ]], columns=positioning_df.columns)
+
+                    if positioning_df.empty:
+                        positioning_df = new_df
+                    else:
+                        positioning_df = pd.concat([positioning_df, new_df])
+        return positioning_df
+
+    @lru_cache(maxsize=32)
+    def get_asset_class_z_score_heat(self, asset_class, lookback):
+        """Returns the latest Z-scores for all assets in a class."""
+        assets = self.get_assets_for_asset_class(asset_class)
+        heat_data = []
+
+        for name in assets:
+            instrument = self.get_instrument_from_name(name)
+            if instrument is not None and not instrument.df.empty:
+                df = instrument.df
+                # Get the most recent non-NaN Z-scores
+                latest = df.iloc[-1]
+                if lookback == "26":
+                    heat_data.append({
+                        "Asset": name,
+                        "Commercials": latest.get(const.COMM_26_ZSCORE, 0),
+                        "Large Specs": latest.get(const.LARGE_26_ZSCORE, 0),
+                        "Small Specs": latest.get(const.SMALL_26_ZSCORE, 0)
+                    })
+                elif lookback == "52":
+                    heat_data.append({
+                        "Asset": name,
+                        "Commercials": latest.get(const.COMM_52_ZSCORE, 0),
+                        "Large Specs": latest.get(const.LARGE_52_ZSCORE, 0),
+                        "Small Specs": latest.get(const.SMALL_52_ZSCORE, 0)
+                    })
+                else:
+                    heat_data.append({
+                        "Asset": name,
+                        "Commercials": latest.get(const.COMM_CUSTOM_ZSCORE, 0),
+                        "Large Specs": latest.get(const.LARGE_CUSTOM_ZSCORE, 0),
+                        "Small Specs": latest.get(const.SMALL_CUSTOM_ZSCORE, 0)
+                    })
+
+        return pd.DataFrame(heat_data)
+
+    @lru_cache(maxsize=32)
+    def get_asset_class_index_heat(self, asset_class, lookback):
+        """Returns the latest Index for all assets in a class."""
+        assets = self.get_assets_for_asset_class(asset_class)
+        heat_data = []
+
+        for name in assets:
+            instrument = self.get_instrument_from_name(name)
+            if instrument is not None and not instrument.df.empty:
+                df = instrument.df
+                # Get the most recent non-NaN Z-scores
+                latest = df.iloc[-1]
+
+                if lookback == "26":
+                    heat_data.append({
+                        "Asset": name,
+                        "Commercials": latest.get(const.COMM_26_IDX, 0),
+                        "Large Specs": latest.get(const.LARGE_26_IDX, 0),
+                        "Small Specs": latest.get(const.SMALL_26_IDX, 0)
+                    })
+                elif lookback == "52":
+                    heat_data.append({
+                        "Asset": name,
+                        "Commercials": latest.get(const.COMM_52_IDX, 0),
+                        "Large Specs": latest.get(const.LARGE_52_IDX, 0),
+                        "Small Specs": latest.get(const.SMALL_52_IDX, 0)
+                    })
+                else:
+                    heat_data.append({
+                        "Asset": name,
+                        "Commercials": latest.get(const.COMM_CUSTOM_IDX, 0),
+                        "Large Specs": latest.get(const.LARGE_CUSTOM_IDX, 0),
+                        "Small Specs": latest.get(const.SMALL_CUSTOM_IDX, 0)
+                    })
+
+        return pd.DataFrame(heat_data)

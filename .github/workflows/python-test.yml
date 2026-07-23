@@ -1,0 +1,59 @@
+name: Python package
+
+on:
+  push:
+    branches: [ "main" ]
+  pull_request:
+    branches: [ "main" ]
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ["3.9", "3.10", "3.11", "3.12", "3.13"]
+
+    steps:
+    - name: Check out cotmetrics
+      uses: actions/checkout@v4
+      with:
+        path: cotmetrics
+
+    - name: Check out cotdata (shared data layer — resolves the `cotdata` dep)
+      uses: actions/checkout@v4
+      with:
+        repository: mspinola/cotdata
+        path: cotdata
+
+    - name: Set up Python ${{ matrix.python-version }}
+      uses: actions/setup-python@v5
+      with:
+        python-version: ${{ matrix.python-version }}
+
+    - name: Install dependencies
+      working-directory: cotmetrics
+      run: |
+        python -m pip install --upgrade pip
+        python -m pip install -e ../cotdata -e .[options,scheduler,dev]
+
+    - name: Verify internal dependency floors
+      # cotdata is installed editable from ../ at whatever HEAD was checked out, so
+      # pip never enforces the version floor in pyproject.toml. This asserts the
+      # installed sibling actually satisfies the declared floor.
+      working-directory: cotmetrics
+      run: python scripts/check_dep_floors.py
+
+    - name: Run linting
+      working-directory: cotmetrics
+      run: python -m ruff check src tests
+
+    - name: Run tests
+      working-directory: cotmetrics
+      env:
+        # Dummy store so cotdata's COTDATA_STORE guard doesn't error at import.
+        COTDATA_STORE: /tmp/cotdata_store
+        COTMETRICS_CACHE: /tmp/cotmetrics_cache
+      run: |
+        mkdir -p /tmp/cotdata_store /tmp/cotmetrics_cache
+        pytest tests/

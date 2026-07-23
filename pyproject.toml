@@ -1,0 +1,51 @@
+[build-system]
+requires = ["setuptools>=64", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "cotmetrics"
+version = "0.1.0"
+description = "Turn raw COT data into positioning metrics and trading signals (positioning index, concentration/clustering/position-size, reversal signals)."
+readme = "README.md"
+authors = [
+    {name = "Matt S.", email = "cotanalyzer@gmail.com"}
+]
+classifiers = [
+    "Programming Language :: Python :: 3",
+    "License :: OSI Approved :: MIT License",
+    "Operating System :: OS Independent",
+]
+requires-python = ">=3.9"
+dependencies = [
+    "pandas>=1.5",
+    "numpy",
+    "pyarrow>=10",
+    "PyYAML>=6.0",
+    "pytz",
+    "requests>=2.28",       # legacy CFTC ETL (cotmetrics.etl)
+    "xlrd>=2.0",            # legacy CFTC dea_fut_xls are .xls
+    "cotdata>=0.1.0",       # shared data layer; editable in the workspace: -e ../cotdata
+]
+
+[project.optional-dependencies]
+options = ["yfinance"]      # cotmetrics.options_data (max-pain snapshots)
+scheduler = ["schedule"]    # cotmetrics.pipelines.etl_scheduler
+dev = ["pytest>=7", "ruff==0.15.22", 'tomli; python_version < "3.11"']  # tomli for scripts/check_dep_floors.py on <3.11
+
+[project.urls]
+Homepage = "https://github.com/mspinola/cotmetrics"
+Repository = "https://github.com/mspinola/cotmetrics"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.setuptools.package-data]
+cotmetrics = ["*.yaml"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py39"
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I"]
+ignore = ["E501"]

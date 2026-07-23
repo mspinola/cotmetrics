@@ -1,0 +1,41 @@
+# cotmetrics example configuration.
+#
+# This is a public SAMPLE. It ships with the package so cotmetrics runs out of
+# the box, but it is deliberately generic: a small representative universe with
+# untuned 52-week lookbacks and default flow caps. Point COTMETRICS_PARAMS at
+# your own file to supply a real instrument universe and any tuned parameters.
+
+# Price type to use for daily estimations ("close" or "settlement").
+price_type: "settlement"
+
+# Max daily open-interest flow as a fraction of daily volume, per asset class.
+# Generic defaults here; calibrate per class in your own config.
+flow_caps:
+  Default: 0.10
+
+# Lookback windows (weeks) computed for every COT report.
+lookbacks:
+  - ["6-months", 26]
+  - ["1-years", 52]
+
+# Years of COT data to download and process.
+years: [2020, 2021, 2022, 2023, 2024, 2025, 2026]
+
+# Instrument role: deploy (plotted, default), watch (plotted, not in book),
+# heldout (indexed but never plotted/selected).
+roles:
+  default: deploy
+
+# A small, generic universe. Symbols are public futures tickers; the lookbacks
+# are the untuned 52-week default. Replace with your own via COTMETRICS_PARAMS.
+AssetClasses:
+  - Equities:
+      - { Name: "S&P 500", Symbol: "ES", CustomLookbackWeeks: 52, TV_Chart: "SPY" }
+      - { Name: "Nasdaq", Symbol: "NQ", CustomLookbackWeeks: 52, TV_Chart: "QQQ" }
+      # Example held-out market (indexed but kept out of the dashboard/selection).
+      - { Name: "Russell 2000", Symbol: "RTY", CustomLookbackWeeks: 52, TV_Chart: "IWM", Role: heldout }
+  - Metals:
+      - { Name: "Gold", Symbol: "GC", CustomLookbackWeeks: 52, TV_Chart: "GOLD" }
+      - { Name: "Silver", Symbol: "SI", CustomLookbackWeeks: 52, TV_Chart: "SILVER" }
+  - Energies:
+      - { Name: "Crude Oil", Symbol: "CL", CustomLookbackWeeks: 52, TV_Chart: "USOIL" }
