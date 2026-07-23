@@ -7,6 +7,7 @@ name = "cotmetrics"
 version = "0.1.0"
 description = "Turn raw COT data into positioning metrics and trading signals (positioning index, concentration/clustering/position-size, reversal signals)."
 readme = "README.md"
+license = { text = "MIT" }
 authors = [
     {name = "Matt S.", email = "cotanalyzer@gmail.com"}
 ]
