@@ -2,8 +2,8 @@
 core/reports.py
 
 Shared report generation logic, usable by both the Dash UI (heatmap.py)
-and the background downloader (etl_scheduler.py) without importing
-any Dash UI components.
+and the background email script (generate-weekly-report-email.py) without
+importing any Dash UI components.
 """
 from datetime import datetime
 

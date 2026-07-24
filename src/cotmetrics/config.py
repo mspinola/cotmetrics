@@ -7,7 +7,7 @@ per-user defaults:
 
   COTMETRICS_CACHE   derived per-instrument parquet cache (also `constants.CACHE_DIR`)
   COTMETRICS_PARAMS  instrument/params config; defaults to the packaged SAMPLE params.yaml
-  COTMETRICS_DATA    legacy raw_cot_data.parquet + real_test_data exports
+  COTMETRICS_DATA    real_test_data (fixture) exports
 """
 import logging as _logging
 import os
@@ -29,8 +29,7 @@ def citpy_dir() -> str:
 
 
 def data_dir() -> str:
-    """Working data dir for the legacy raw_cot_data.parquet fallback and
-    real_test_data exports."""
+    """Working data dir for real_test_data (fixture) exports."""
     d = os.environ.get("COTMETRICS_DATA")
     return d if d else str(Path(cache_dir()).parent / "cotmetrics_data")
 

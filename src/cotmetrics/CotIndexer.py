@@ -61,7 +61,6 @@ class CotIndexer:
     def __init__(self, real_test_data_dir=None, params_dir=None):
         import cotmetrics.config as config
         self._config = config
-        self.base_dir = config.data_dir()
 
         self.real_test_data_dir = real_test_data_dir if real_test_data_dir else os.path.join(config.data_dir(), 'real_test_data')
         self.params_dir = params_dir if params_dir else config.params_path()
@@ -158,8 +157,7 @@ class CotIndexer:
 
     def _load_raw_cot(self, columns=None) -> pd.DataFrame:
         """Raw weekly COT (Legacy schema, Report_Date as a column) from the cotdata
-        store, one per-code table per supported instrument, concatenated. Falls
-        back to the legacy raw_cot_data.parquet if the store has no COT yet."""
+        store, one per-code table per supported instrument, concatenated."""
         import cotdata
         frames = []
         for code in self.supported_instruments:
@@ -169,11 +167,6 @@ class CotIndexer:
         if frames:
             df = pd.concat(frames, ignore_index=True)
             return df[columns] if columns else df
-        # Fallback: legacy ETL parquet (until the COT store is populated everywhere)
-        raw_parquet_path = os.path.join(self.base_dir, 'raw_cot_data.parquet')
-        if os.path.exists(raw_parquet_path):
-            utils.cot_logger.info("_load_raw_cot: cotdata store empty, using legacy raw_cot_data.parquet")
-            return pd.read_parquet(raw_parquet_path, columns=columns) if columns else pd.read_parquet(raw_parquet_path)
         return pd.DataFrame()
 
     @staticmethod
@@ -353,7 +346,7 @@ class CotIndexer:
     def populate_instruments(self):
         df = self._load_raw_cot()
         if df.empty:
-            msg = "No COT data available (cotdata store empty and no legacy raw_cot_data.parquet). Run `cotdata-update --cot` first."
+            msg = "No COT data in the cotdata store. Run `cotdata-update --cot-all` to populate it."
             utils.cot_logger.error(msg)
             raise FileNotFoundError(msg)
 

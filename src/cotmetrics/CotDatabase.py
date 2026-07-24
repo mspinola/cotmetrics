@@ -27,12 +27,6 @@ class CotDatabase:
         """Create the database and the necessary table if it doesn't exist."""
         conn = sqlite3.connect(self.db_name)
         c = conn.cursor()
-        c.execute('''
-            CREATE TABLE IF NOT EXISTS zip_files (
-                year INTEGER PRIMARY KEY,
-                last_modified TEXT
-            )
-        ''')
 
         # Add visitor logs table
         c.execute('''
@@ -90,51 +84,23 @@ class CotDatabase:
         conn.close()
         return df
 
-    def update_zip_file(self, year, last_modified):
-        """Update the last modified date of the zip file in the database."""
-        conn = sqlite3.connect(self.db_name)
-        c = conn.cursor()
-        c.execute('''
-            INSERT INTO zip_files (year, last_modified) VALUES (?, ?)
-            ON CONFLICT(year) DO UPDATE SET last_modified = ?
-        ''', (year, last_modified, last_modified))
-        conn.commit()
-        conn.close()
-        utils.get_cot_logger().warning(f"Updated latest zipfile time in DB {year} {last_modified}")
-
-    def get_zipfile_last_modified_time(self, year):
-        conn = sqlite3.connect(self.db_name)
-        c = conn.cursor()
-        c.execute('SELECT last_modified FROM zip_files WHERE year = ?', (year,))
-        row = c.fetchone()
-        conn.close()
-
-        result = None
-        if row:
-            try:
-                result = datetime.strptime(row[0], '%a, %d %b %Y %H:%M:%S %Z')
-            except Exception as e:
-                utils.get_cot_logger().debug(f"First attempt exception in date format {result}. {e}")
-                try:
-                    utils.get_cot_logger().debug(f"2nd attempt on {row[0]}")
-                    result = datetime.strptime(row[0], '%Y-%m-%d %H:%M:%S')
-                    utils.get_cot_logger().debug(f"2nd time worked {result}")
-                except Exception as e:
-                    utils.get_cot_logger().error(f"2nd time exception in date format {result}. {e}")
-                    return None
-        return result
-
     def latest_update_timestamp(self):
-        tz_aware = "Unknown"
-        year = str(datetime.now().year)
-        result = self.get_zipfile_last_modified_time(year)
-        if result is not None:
-            tz_aware = result.replace(tzinfo=timezone.utc)
-            tz_aware = tz_aware.astimezone(ZoneInfo("America/New_York"))
-            tz_aware = tz_aware.strftime("%Y-%m-%d %H:%M:%S %Z")
-            if tz_aware is None:
-                tz_aware = "Unknown"
-        return tz_aware
+        try:
+            import json
+            import cotdata.config as _cfg
+            status_file = _cfg.store_root() / "status.json"
+            if status_file.exists():
+                with open(status_file, "r") as f:
+                    status = json.load(f)
+                
+                newest_data = status.get("domains", {}).get("cot_legacy", {}).get("newest_data")
+                if newest_data:
+                    # newest_data is already in YYYY-MM-DD format
+                    return newest_data
+        except Exception as e:
+            utils.get_cot_logger().error(f"Error reading status.json for timestamp: {e}")
+            
+        return "Unknown"
 
     def save_predictions(self, symbol, report_date, prob_success, meta_side, expectancy=None, atr_mult_tp=None, atr_mult_sl=None):
         conn = sqlite3.connect(self.db_name)
