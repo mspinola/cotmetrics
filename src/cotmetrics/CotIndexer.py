@@ -463,180 +463,6 @@ class CotIndexer:
         merged.index = range(len(merged))
         inst.df = merged
 
-    def estimate_current_gap_positions(self, df, symbol, lb_weeks):
-        """
-        Estimates the net position change from Tuesday close to Friday
-        using a deterministic Synthetic COT Baseline.
-        """
-        df.attrs['synthetic_daily'] = pd.DataFrame()
-        if df.empty:
-            return
-
-        import cotdata
-        import numpy as np
-
-        # Tuesday's official baseline
-        last_row = df.iloc[-1]
-        last_idx = df.index[-1]
-        tue_date = last_row[const.REPORT_DATE_XLS]
-
-        tue_price = last_row[const.CLOSING_PRICE]
-        tue_oi = last_row[const.OPEN_INTEREST_XLS]
-        comm_net = last_row[const.COMM_NET]
-        lrg_net = last_row[const.LARGE_NET]
-        sml_net = last_row[const.SMALL_NET]
-
-        # Failsafe values
-        df.at[last_idx, const.COMM_NET_EST] = comm_net
-        df.at[last_idx, const.LARGE_NET_EST] = lrg_net
-        df.at[last_idx, const.SMALL_NET_EST] = sml_net
-
-        if tue_price == 0:
-            return
-
-        try:
-            # Fetch current daily data from cotdata (Norgate or Databento fallback).
-            # volume='front' (total-curve, all contracts) — NOT 'reconstructed'
-            # (first+second only). The flow cap min(|ΔOI|, volume*cap_pct) is a proxy
-            # for COT-measured flow, and COT aggregates ALL contract months, so the
-            # cap should scale with total-curve volume. Reconstructed (top-2) under-
-            # counts deep-curve markets and over-throttles their true |ΔOI| by an
-            # extra 8-15% (NG/RB/CL) for no market reason; front-concentrated symbols
-            # are unaffected. See the ΔOI-tracking analysis (2026-07). The reconstructed
-            # columns remain available via cotdata for other uses; the flow cap wants total.
-            current_data = cotdata.get_prices(symbol, adjustment='backadj', volume='front', start=tue_date.strftime('%Y-%m-%d'))
-
-            if current_data.empty:
-                return
-
-            # Extract Databento's Tuesday OI to calculate multiplier for Databento's scaled OI
-            db_tue_data = current_data[current_data.index == tue_date]
-            db_tue_oi_raw = None
-            if not db_tue_data.empty:
-                db_tue_oi_raw = db_tue_data.iloc[0].get('Open Interest')
-
-            multiplier = 1.0
-            if pd.notna(db_tue_oi_raw) and db_tue_oi_raw != 0:
-                multiplier = tue_oi / db_tue_oi_raw
-
-            # Keep only the days *after* the Tuesday cutoff
-            current_data = current_data[current_data.index > tue_date].copy()
-            if current_data.empty:
-                return
-
-            prev_price = tue_price
-            prev_oi = tue_oi
-
-            syn_comm = comm_net
-            syn_lrg = lrg_net
-            syn_sml = sml_net
-
-            daily_records = []
-
-            for date, row in current_data.iterrows():
-                close = row['Close']
-                volume = row.get('Volume', 0)
-                oi_raw = row.get('Open Interest')
-
-                delta_price = close - prev_price
-
-                if pd.isna(oi_raw) or oi_raw == 0:
-                    # Missing OI fallback: use 5% of Volume as the proxy flow
-                    flow = volume * 0.05
-                    delta_oi = np.sign(delta_price) * flow
-                    oi = prev_oi + delta_oi
-                else:
-                    oi = oi_raw * multiplier
-                    delta_oi = oi - prev_oi
-
-                    # Cap the flow using an asset-class specific fraction of daily volume.
-                    # Equities have massive intraday/HFT volume, so they need a much tighter cap.
-                    instrument_obj = self.get_instrument_from_symbol(symbol)
-                    asset_class = instrument_obj.asset_class if instrument_obj else ""
-
-                    flow_caps = getattr(self, 'flow_caps', {})
-                    if asset_class in flow_caps:
-                        cap_pct = flow_caps[asset_class]
-                    else:
-                        cap_pct = flow_caps.get("Default", 0.10)
-
-                    flow = min(abs(delta_oi), volume * cap_pct)
-
-                # Commercials take the OTHER side of price. If price goes down, they buy (+1)
-                sign_comm = -np.sign(delta_price) if delta_price != 0 else 0
-
-                # Speculators are trend followers. They take the SAME side of price.
-                sign_spec = np.sign(delta_price) if delta_price != 0 else 0
-
-                # Friction Coefficients (Prorating the OI flow)
-                comm_delta = sign_comm * flow * 0.60
-                lrg_delta = sign_spec * flow * 0.35
-                sml_delta = sign_spec * flow * 0.05
-
-                syn_comm += comm_delta
-                syn_lrg += lrg_delta
-                syn_sml += sml_delta
-
-                if lb_weeks and len(df) >= lb_weeks:
-                    historical_comm = df[const.COMM_NET].iloc[-lb_weeks:]
-                    historical_lrg = df[const.LARGE_NET].iloc[-lb_weeks:]
-                    historical_sml = df[const.SMALL_NET].iloc[-lb_weeks:]
-
-                    c_min, c_max = historical_comm.min(), historical_comm.max()
-                    l_min, l_max = historical_lrg.min(), historical_lrg.max()
-                    s_min, s_max = historical_sml.min(), historical_sml.max()
-
-                    c_min = min(c_min, syn_comm)
-                    c_max = max(c_max, syn_comm)
-                    l_min = min(l_min, syn_lrg)
-                    l_max = max(l_max, syn_lrg)
-                    s_min = min(s_min, syn_sml)
-                    s_max = max(s_max, syn_sml)
-
-                    comm_idx = (syn_comm - c_min) / (c_max - c_min + 1e-9) * 100
-                    lrg_idx = (syn_lrg - l_min) / (l_max - l_min + 1e-9) * 100
-                    sml_idx = (syn_sml - s_min) / (s_max - s_min + 1e-9) * 100
-                else:
-                    comm_idx, lrg_idx, sml_idx = 0, 0, 0
-
-                oi_proxied = pd.isna(oi_raw) or oi_raw == 0
-
-                daily_records.append({
-                    "Date": date,
-                    "Close": close,
-                    "Delta Price": delta_price,
-                    "Open Interest": oi,
-                    "Delta OI": delta_oi,
-                    "OI Proxied": oi_proxied,
-                    "Comm Est": syn_comm,
-                    "Lrg Est": syn_lrg,
-                    "Sml Est": syn_sml,
-                    "Comm Idx": comm_idx,
-                    "Lrg Idx": lrg_idx,
-                    "Sml Idx": sml_idx
-                })
-
-                prev_price = close
-                prev_oi = oi
-
-            # Apply final estimates to the dataframe
-            if daily_records:
-                df.at[last_idx, const.LIVE_PRICE] = prev_price
-                df.at[last_idx, const.COMM_NET_EST] = round(syn_comm, 0)
-                df.at[last_idx, const.LARGE_NET_EST] = round(syn_lrg, 0)
-                df.at[last_idx, const.SMALL_NET_EST] = round(syn_sml, 0)
-
-                # Attach the daily breakdown to the dataframe attributes for UI consumption
-                df.attrs['synthetic_daily'] = pd.DataFrame(daily_records)
-
-
-        except Exception as e:
-            utils.cot_logger.error(f"Error estimating gap for {symbol}: {e}")
-
-        utils.cot_logger.debug(
-            f"Estimated positions for {symbol} - Comm: {df.at[last_idx, const.COMM_NET_EST]}, Large: {df.at[last_idx, const.LARGE_NET_EST]}, Small: {df.at[last_idx, const.SMALL_NET_EST]}"
-        )
-
     @staticmethod
     def process_lookback(lookback, symbol, df):
         idx_col_header_name = const.get_lookback_header_str(lookback) + const.IDX
@@ -993,11 +819,6 @@ class CotIndexer:
             df[const.LARGE_NET_NORM] = df[const.LARGE_NET] / (df[const.OPEN_INTEREST_XLS] + 1e-9)
             df[const.SMALL_NET_NORM] = df[const.SMALL_NET] / (df[const.OPEN_INTEREST_XLS] + 1e-9)
             df[const.COMM_NET_CHANGE_NORM] = (df[const.COMM_NET_NORM].pct_change() * 100).fillna(0).round(1)
-
-            # We only estimate the last row (current week) since that's the only one that would have a gap between Tuesday and Friday
-            df[const.COMM_NET_EST] = df[const.COMM_NET]
-            df[const.LARGE_NET_EST] = df[const.LARGE_NET]
-            df[const.SMALL_NET_EST] = df[const.SMALL_NET]
 
             # Add new columns for position as percent of open interest
             # Adding epsilon (1e-9) to denominator prevents division by zero
@@ -1412,16 +1233,6 @@ class CotIndexer:
             df = instrument.df
             result = df.copy()
 
-            # Populate synthetic gap data directly on result before returning so the UI can render it!
-            clean_lb = str(lookback).strip()
-            lb_int = instrument.custom_lookback if clean_lb == "Custom" else int(clean_lb)
-
-            # Ensure result.attrs is initialized as a dict to be completely safe
-            if not hasattr(result, "attrs") or result.attrs is None:
-                result.attrs = {}
-
-            self.estimate_current_gap_positions(result, instrument.symbol, lb_int)
-
             result[const.DATE] = df[const.REPORT_DATE_XLS]
 
             result[const.COMMS_IDX] = df[COMM_NORM_IDX if normalized else COMM_IDX]
@@ -1480,17 +1291,12 @@ class CotIndexer:
             if const.OPEN_INTEREST_XLS in df.columns:
                 result[const.OPEN_INTEREST] = df[const.OPEN_INTEREST_XLS]
 
-            # Preserve synthetic_daily from the local result if it exists
-            syn_daily = result.attrs.get('synthetic_daily') if hasattr(result, 'attrs') else None
-
             result = metrics.append_trading_signals(result, asset_class=instrument.asset_class, normalized=normalized)
 
             result.set_index(const.DATE, inplace=True)
 
             # Reattach attrs after all dataframe operations to guarantee Pandas doesn't drop them
             result.attrs = getattr(df, "attrs", {}).copy()
-            if syn_daily is not None:
-                result.attrs['synthetic_daily'] = syn_daily
             # Stamp the basis so downstream consumers (plot labels, CSV exports) can say
             # which one they are showing instead of guessing.
             result.attrs['basis'] = basis
@@ -1509,7 +1315,7 @@ class CotIndexer:
         return []
 
     @lru_cache(maxsize=32)
-    def get_positioning_table_by_asset_class(self, asset_classes, lookback, estimate_gap=False, target_date=None):
+    def get_positioning_table_by_asset_class(self, asset_classes, lookback, target_date=None):
         from cotmetrics.options_data import get_max_pain_for_symbol
         # Convert list to tuple so lru_cache doesn't crash!
         if isinstance(asset_classes, list):
@@ -1555,8 +1361,6 @@ class CotIndexer:
                 const.COMM_NET, const.LARGE_NET, const.SMALL_NET,
                 const.COMM_PCT_OI, const.LARGE_PCT_OI, const.SMALL_PCT_OI,
                 COMM_IDX, LRG_IDX, SML_IDX,
-                const.COMM_NET_EST, const.LARGE_NET_EST, const.SMALL_NET_EST,
-                const.COMM_IDX_EST, const.LARGE_IDX_EST, const.SMALL_IDX_EST,
                 const.COMM_NET_NORM, const.LARGE_NET_NORM, const.SMALL_NET_NORM,
                 COMM_NORM_IDX, LRG_NORM_IDX, SML_NORM_IDX,
                 COMM_ZS, LRG_ZS, SML_ZS,
@@ -1586,27 +1390,6 @@ class CotIndexer:
                         idx = len(df) - 1
 
                     symbol = instrument.symbol
-                    if estimate_gap:
-                        self.estimate_current_gap_positions(
-                            df, symbol, instrument.custom_lookback)
-
-                        lb_weeks = utils.get_lookback_weeks(
-                            lookback, instrument)
-                        utils.cot_logger.debug(
-                            f"Calculating indexes for {symbol} with lookback {lookback} ({lb_weeks} weeks)...")
-
-                        lb_idx = idx - lb_weeks
-                        df.at[idx, const.COMM_IDX_EST] = metrics.calculate_cot_index(
-                            df[const.COMM_NET_EST], lb_idx, idx)
-                        df.at[idx, const.LARGE_IDX_EST] = metrics.calculate_cot_index(
-                            df[const.LARGE_NET_EST], lb_idx, idx)
-                        df.at[idx, const.SMALL_IDX_EST] = metrics.calculate_cot_index(
-                            df[const.SMALL_NET_EST], lb_idx, idx)
-                    else:
-                        df.at[idx, const.COMM_IDX_EST] = 0
-                        df.at[idx, const.LARGE_IDX_EST] = 0
-                        df.at[idx, const.SMALL_IDX_EST] = 0
-
                     res = get_max_pain_for_symbol(symbol, df.loc[idx, const.REPORT_DATE_XLS].date())
                     max_pain, delta_iv = (res["max_pain"], res["delta_iv"]) if res else (None, None)
 
@@ -1616,8 +1399,6 @@ class CotIndexer:
                           df.loc[idx, const.COMM_NET], df.loc[idx, const.LARGE_NET], df.loc[idx, const.SMALL_NET],
                           df.loc[idx, const.COMM_PCT_OI], df.loc[idx, const.LARGE_PCT_OI], df.loc[idx, const.SMALL_PCT_OI],
                           df.loc[idx, COMM_IDX], df.loc[idx, LRG_IDX], df.loc[idx, SML_IDX],
-                          df.loc[idx, const.COMM_NET_EST], df.loc[idx, const.LARGE_NET_EST], df.loc[idx, const.SMALL_NET_EST],
-                          df.loc[idx, const.COMM_IDX_EST], df.loc[idx, const.LARGE_IDX_EST], df.loc[idx, const.SMALL_IDX_EST],
                           round(df.loc[idx, const.COMM_NET_NORM], 2), round(df.loc[idx, const.LARGE_NET_NORM], 2), round(df.loc[idx, const.SMALL_NET_NORM], 2),
                           df.loc[idx, COMM_NORM_IDX], df.loc[idx, LRG_NORM_IDX], df.loc[idx, SML_NORM_IDX],
                           round(df.loc[idx, COMM_ZS], 2), round(df.loc[idx, LRG_ZS], 2), round(df.loc[idx, SML_ZS], 2),
