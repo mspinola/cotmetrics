@@ -1,7 +1,6 @@
 import os
 import sqlite3
-from datetime import datetime, timezone
-from zoneinfo import ZoneInfo
+from datetime import datetime
 
 import pandas as pd
 
@@ -87,19 +86,20 @@ class CotDatabase:
     def latest_update_timestamp(self):
         try:
             import json
+
             import cotdata.config as _cfg
             status_file = _cfg.store_root() / "status.json"
             if status_file.exists():
                 with open(status_file, "r") as f:
                     status = json.load(f)
-                
+
                 newest_data = status.get("domains", {}).get("cot_legacy", {}).get("newest_data")
                 if newest_data:
                     # newest_data is already in YYYY-MM-DD format
                     return newest_data
         except Exception as e:
             utils.get_cot_logger().error(f"Error reading status.json for timestamp: {e}")
-            
+
         return "Unknown"
 
     def save_predictions(self, symbol, report_date, prob_success, meta_side, expectancy=None, atr_mult_tp=None, atr_mult_sl=None):
