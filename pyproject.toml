@@ -30,7 +30,6 @@ dependencies = [
 
 [project.optional-dependencies]
 options = ["yfinance"]      # cotmetrics.options_data (max-pain snapshots)
-scheduler = ["schedule"]    # cotmetrics.pipelines.etl_scheduler
 dev = ["pytest>=7", "ruff==0.15.22", 'tomli; python_version < "3.11"']  # tomli for scripts/check_dep_floors.py on <3.11
 
 [project.urls]

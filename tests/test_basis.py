@@ -72,7 +72,6 @@ def stub_self(monkeypatch):
         last_known_db_time="t0",
         get_instrument_from_name=lambda name: instrument,
         is_equity=lambda name: False,
-        estimate_current_gap_positions=lambda *a, **k: None,
         _seen=seen,
     )
 

@@ -50,7 +50,7 @@ def test_indexer_consumers_import_without_the_data_store():
     env = {k: v for k, v in __import__("os").environ.items() if k != "COTDATA_STORE"}
     out = subprocess.run(
         [sys.executable, "-c",
-         "import cotmetrics.reports, cotmetrics.movers, cotmetrics.pipelines.etl_scheduler;"
+         "import cotmetrics.reports, cotmetrics.movers;"
          " import cotmetrics.indexer as ix; print('built' if ix._indexer else 'unbuilt')"],
         capture_output=True, text=True, env=env, timeout=120)
     assert out.returncode == 0, out.stderr
