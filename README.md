@@ -44,7 +44,7 @@ when you call `boot_options_update()` explicitly.
 |-----|---------|---------|
 | `COTDATA_STORE` | shared price/COT store (from cotdata) | required |
 | `COTMETRICS_CACHE` | derived per-instrument parquet cache | `~/.cache/cotmetrics` |
-| `COTMETRICS_CITPY` | CIT PY research notes (dated `.md`/`.txt`), persistent data not a cache | `~/.local/share/cotmetrics/citpy` |
+| `COTMETRICS_CITPY` | CIT PY research notes (dated `.md`/`.txt`), persistent data not a cache. Point it at the generating tool's output dir, never inside `COTDATA_STORE` | `~/.local/share/cotmetrics/citpy` |
 | `COTMETRICS_PARAMS` | instrument/params config | packaged **sample** `params.yaml` |
 | `COTMETRICS_DATA` | working dir for real_test_data (fixture) exports | `<cache>/../cotmetrics_data` |
 
