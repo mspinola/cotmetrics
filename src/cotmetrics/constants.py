@@ -13,9 +13,10 @@ CACHE_DIR = os.environ.get(
 # watchlist) are hand-maintained artifacts copied in by a person, produced by an
 # external tool and only read here — NOT a regenerable cache. They must not default
 # under CACHE_DIR: ~/.cache is fair game for OS/cleanup purges, so durable notes there
-# are silent data loss. Default to the XDG *data* dir instead; a deployment that keeps
-# the notes with the shared store sets COTMETRICS_CITPY (cot-analyzer's run-local.sh
-# points it at $COTDATA_STORE/citpy).
+# are silent data loss. Default to the XDG *data* dir instead, and point
+# COTMETRICS_CITPY at the generating tool's own output directory. Do NOT point it
+# inside $COTDATA_STORE: the store is a producer/consumer artifact that gets mirrored
+# between machines, and no producer creates a citpy/, so a --delete sync removes it.
 _DATA_HOME = os.environ.get("XDG_DATA_HOME") or str(Path.home() / ".local" / "share")
 CITPY_DIR = os.environ.get("COTMETRICS_CITPY", str(Path(_DATA_HOME) / "cotmetrics" / "citpy"))
 
