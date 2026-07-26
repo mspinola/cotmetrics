@@ -8,7 +8,16 @@ from pathlib import Path
 CACHE_DIR = os.environ.get(
     "COTMETRICS_CACHE", str(Path.home() / ".cache" / "cotmetrics")
 )
-CITPY_DIR = os.environ.get("COTMETRICS_CITPY", str(Path(CACHE_DIR) / "citpy"))
+
+# CIT PY research notes (dated .md/.txt: Citrindex, Top Allocations, TradingView
+# watchlist) are hand-maintained artifacts copied in by a person, produced by an
+# external tool and only read here — NOT a regenerable cache. They must not default
+# under CACHE_DIR: ~/.cache is fair game for OS/cleanup purges, so durable notes there
+# are silent data loss. Default to the XDG *data* dir instead; a deployment that keeps
+# the notes with the shared store sets COTMETRICS_CITPY (cot-analyzer's run-local.sh
+# points it at $COTDATA_STORE/citpy).
+_DATA_HOME = os.environ.get("XDG_DATA_HOME") or str(Path.home() / ".local" / "share")
+CITPY_DIR = os.environ.get("COTMETRICS_CITPY", str(Path(_DATA_HOME) / "cotmetrics" / "citpy"))
 
 # Derived-metrics cache version. The per-symbol cache guards key on *column
 # presence*, and the cotdata schema marker only moves when the upstream store

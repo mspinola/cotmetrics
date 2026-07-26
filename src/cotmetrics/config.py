@@ -6,6 +6,8 @@ locations come from env vars (mirroring cotdata's COTDATA_STORE convention) with
 per-user defaults:
 
   COTMETRICS_CACHE   derived per-instrument parquet cache (also `constants.CACHE_DIR`)
+  COTMETRICS_CITPY   CIT PY research notes (dated .md/.txt, copied in by hand — persistent
+                     user data, NOT a cache); defaults to the XDG data dir, not CACHE_DIR
   COTMETRICS_PARAMS  instrument/params config; defaults to the packaged SAMPLE params.yaml
   COTMETRICS_DATA    real_test_data (fixture) exports
 """
