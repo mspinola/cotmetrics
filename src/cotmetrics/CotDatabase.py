@@ -4,18 +4,17 @@ from datetime import datetime
 
 import pandas as pd
 
+import cotmetrics.constants as constants
 import cotmetrics.utils as utils
 
 
 class CotDatabase:
     """Class to manage COT data"""
     def __init__(self, db_name=None):
-        if db_name is None:
-            # Resolve absolutely to cot-analyzer/data/cot_data.db
-            base_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..'))
-            self.db_name = os.path.join(base_dir, 'data', 'cot_data.db')
-        else:
-            self.db_name = db_name
+        # Default to constants.DB_PATH (COTMETRICS_DB, else the XDG data dir). The
+        # old default resolved relative to __file__, which after the cotmetrics
+        # split landed inside the package tree, not cot-analyzer.
+        self.db_name = db_name if db_name is not None else constants.DB_PATH
 
         # Ensure directories exist
         os.makedirs(os.path.dirname(self.db_name), exist_ok=True)

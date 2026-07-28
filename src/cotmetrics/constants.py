@@ -20,6 +20,14 @@ CACHE_DIR = os.environ.get(
 _DATA_HOME = os.environ.get("XDG_DATA_HOME") or str(Path.home() / ".local" / "share")
 CITPY_DIR = os.environ.get("COTMETRICS_CITPY", str(Path(_DATA_HOME) / "cotmetrics" / "citpy"))
 
+# Visitor-log SQLite DB. Durable data, not a regenerable cache (the visit history
+# cannot be rebuilt), so it follows the CITPY rule above: default under the XDG
+# *data* dir, never CACHE_DIR (an OS purge would silently drop it) and never inside
+# the installed package tree — resolving relative to __file__ wrote it to
+# cotmetrics/data/cot_data.db, one shared file behind every venv/checkout pointing
+# at this editable install. Honors COTMETRICS_DB.
+DB_PATH = os.environ.get("COTMETRICS_DB", str(Path(_DATA_HOME) / "cotmetrics" / "cot_data.db"))
+
 # Derived-metrics cache version. The per-symbol cache guards key on *column
 # presence*, and the cotdata schema marker only moves when the upstream store
 # changes — so neither can see a value-only change in our own indicator logic
