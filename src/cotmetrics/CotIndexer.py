@@ -6,6 +6,7 @@ import pandas as pd
 import yaml
 
 import cotmetrics as metrics
+import cotmetrics.categories as categories
 import cotmetrics.constants as const
 import cotmetrics.models as models
 import cotmetrics.symbol_code_map as symbol_code_map
@@ -308,17 +309,25 @@ class CotIndexer:
                     utils.cot_logger.warning(f"try_load_from_cache: missing WoW metrics in -> {cache_path}")
                     return False
 
-                # Force a rebuild of caches predating the true-MM (disaggregated)
-                # concentration columns. Only commodities carry MM data, so the
-                # column's absence on a financial cache is fine — but if NO cache
-                # has it, the schema is stale and must be recomputed.
+                # Force a rebuild of caches predating the true-MM (disaggregated) and
+                # TFF-LEV merges. Only commodities carry MM data and only financials
+                # carry LEV, so a column's absence on the other kind of market is fine.
+                #
+                # Test the RAW merged positions, not the derived concentration columns.
+                # The derived MM_*/LEV_* columns are produced by append_trading_signals
+                # at read time and never written to this parquet, so a guard keyed on
+                # MM_LONG_PSIZE_IDX can never be satisfied: it fails, triggers a full
+                # rebuild, and the rebuilt cache still lacks the column, so the next
+                # request rebuilds again. What _attach_disagg_mm actually persists is
+                # MM_LONG_POS_XLS, and its absence is what "predates the merge" looks
+                # like on disk.
                 if (self.is_commodity_code(instrument_code)
-                        and const.MM_LONG_PSIZE_IDX not in cached_df.columns):
-                    utils.cot_logger.warning(f"try_load_from_cache: missing true-MM metrics in -> {cache_path}")
+                        and const.MM_LONG_POS_XLS not in cached_df.columns):
+                    utils.cot_logger.warning(f"try_load_from_cache: missing true-MM positions in -> {cache_path}")
                     return False
                 if (self.has_tff_code(instrument_code)
-                        and const.LEV_LONG_PSIZE_IDX not in cached_df.columns):
-                    utils.cot_logger.warning(f"try_load_from_cache: missing TFF-LEV metrics in -> {cache_path}")
+                        and const.LEV_LONG_POS_XLS not in cached_df.columns):
+                    utils.cot_logger.warning(f"try_load_from_cache: missing TFF-LEV positions in -> {cache_path}")
                     return False
 
                 # Get the latest date in the excel file for this specific instrument, falling back to overall max date
@@ -368,10 +377,22 @@ class CotIndexer:
 
     def _has_report_code(self, code, attr, dir_fn):
         """Cached membership test: does `code` have a per-code file in a store subdir?
-        Zero network — one dir listing, cached under `attr`."""
+        Zero network — one dir listing, cached under `attr`.
+
+        Store filenames are `{SYMBOL}_{code}.parquet` ("GC_088691"), so a bare stem
+        never equals a bare code. Until the code half was added to this set the test
+        matched nothing, and since both callers are cache-staleness guards, neither
+        guard could fire.
+        """
         if getattr(self, attr, None) is None:
             try:
-                setattr(self, attr, {p.stem for p in dir_fn().glob("*.parquet")})
+                codes = set()
+                for p in dir_fn().glob("*.parquet"):
+                    stem = p.stem
+                    codes.add(stem)
+                    if "_" in stem:
+                        codes.add(stem.rsplit("_", 1)[1])
+                setattr(self, attr, codes)
             except Exception:
                 setattr(self, attr, set())
         s = str(code).strip()
@@ -627,10 +648,14 @@ class CotIndexer:
             # Schema guard: if this instrument now carries disaggregated MM positions
             # (merged in populate_instruments) but the cache predates the true-MM
             # concentration columns, the cache is stale regardless of its date.
+            # Same correction as the guard in try_load_from_cache: compare like with
+            # like. MM_LONG_PSIZE_IDX is derived at read time and never written here,
+            # so testing for it marked every commodity cache stale on every boot and
+            # re-read the bars from the store each time.
             mm_merged = const.MM_LONG_POS_XLS in instrument.df.columns
-            cache_has_mm = const.MM_LONG_PSIZE_IDX in fallback_df.columns
+            cache_has_mm = const.MM_LONG_POS_XLS in fallback_df.columns
             lev_merged = const.LEV_LONG_POS_XLS in instrument.df.columns
-            cache_has_lev = const.LEV_LONG_PSIZE_IDX in fallback_df.columns
+            cache_has_lev = const.LEV_LONG_POS_XLS in fallback_df.columns
             schema_stale = (mm_merged and not cache_has_mm) or (lev_merged and not cache_has_lev)
             if const.REPORT_DATE_XLS in fallback_df.columns and not df.empty and not schema_stale:
                 latest_raw_date = pd.to_datetime(df[const.REPORT_DATE_XLS]).max().tz_localize(None)
@@ -1161,6 +1186,7 @@ class CotIndexer:
             self.get_asset_class_z_score_heat.__func__.cache_clear()
             self.get_asset_class_index_heat.__func__.cache_clear()
             self.get_positioning_table_by_asset_class.__func__.cache_clear()
+            self.get_category_data.__func__.cache_clear()
             self.last_known_db_time = current_db_time
             self.populate_instruments()  # Refresh instruments with new data
             self.calculate_weekly_data()  # Recalculate all metrics for the updated data
@@ -1294,6 +1320,109 @@ class CotIndexer:
             # which one they are showing instead of guessing.
             result.attrs['basis'] = basis
             return result
+
+    def available_reports_for(self, name):
+        """Which category reports this instrument has data for, in (disagg, tff) order.
+
+        Probes the store rather than config. params.yaml instrument entries carry no
+        report-type field, and cotdata.registry.Symbol.report_type is derived from
+        asset-class labels ("FX", "Rates") that the registry never actually uses, so
+        it reads "disagg" for every currency, rates and crypto market whose data
+        lives in cot_tff/. Do not read that field.
+
+        In practice this returns a one-tuple or an empty tuple: the two universes are
+        disjoint (Disaggregated is physical commodities, TFF is financials), so no
+        market has both.
+        """
+        code = self.get_instrument_code_from_name(name)
+        if code is None:
+            return ()
+        found = []
+        if self.is_commodity_code(code):
+            found.append(categories.REPORT_DISAGG)
+        if self.has_tff_code(code):
+            found.append(categories.REPORT_TFF)
+        return tuple(found)
+
+    # Not parquet-cached, only held in RAM. The COTMETRICS_CACHE key is a bare
+    # {symbol}.parquet that already doubles as the price cache, so a report-type
+    # dimension would collide with it, and its invalidation sidecar has no per-report
+    # axis. Recomputing is cheap enough that this is not a trade: ~1,050 weekly rows
+    # times five categories is a handful of rolling passes.
+    @lru_cache(maxsize=64)
+    def get_category_data(self, name, report, lookback="Custom", with_price=True):
+        """Per-category frame for one instrument, indexed by Date like get_symbols_data.
+
+        `report` is categories.REPORT_DISAGG or REPORT_TFF. `lookback` is the same
+        "26"/"52"/"Custom" string the app's global lookback store carries. Returns
+        None when the instrument has no such report, or on a load failure.
+
+        The price columns are joined here rather than by the caller: cot-analyzer is
+        a view over this package and computes nothing of its own, joining included.
+        """
+        if report not in categories.REPORT_CHOICES:
+            raise ValueError(
+                f"unknown report {report!r}, expected one of {categories.REPORT_CHOICES}"
+            )
+
+        instrument = self.get_instrument_from_name(name)
+        if instrument is None:
+            return None
+
+        # Probe availability rather than inferring it from an empty frame: get_cot
+        # returns empty for a missing file, so treating empty as "no such report"
+        # would report a half-synced or corrupt store as a market that simply has no
+        # TFF report, which is both wrong and unfalsifiable from the UI.
+        if report not in self.available_reports_for(name):
+            return None
+
+        weeks = instrument.custom_lookback
+        if lookback != "Custom":
+            for lb_name, lb_weeks in self.lookbacks:
+                if str(lb_weeks) == str(lookback) or lb_name == lookback:
+                    weeks = lb_weeks
+                    break
+        header = const.get_lookback_header_str([lookback, weeks])
+
+        import cotdata
+
+        code = self.get_instrument_code_from_name(name)
+        try:
+            raw = cotdata.get_cot(code, report=report)
+        except Exception as e:
+            utils.cot_logger.warning(
+                f"get_category_data: {report} load failed for {code}: {e}")
+            return None
+        if raw is None or raw.empty:
+            return None
+
+        frame = categories.build_category_frame(
+            raw, report, weeks, lookback_header=header)
+        if frame.empty:
+            return None
+
+        if with_price:
+            price_cols = [const.OPEN_PRICE, const.HIGH_PRICE,
+                          const.LOW_PRICE, const.CLOSING_PRICE]
+            base = instrument.df
+            have = [c for c in price_cols if c in base.columns]
+            if have:
+                prices = base[[const.REPORT_DATE_XLS] + have].copy()
+                prices[const.REPORT_DATE_XLS] = pd.to_datetime(
+                    prices[const.REPORT_DATE_XLS]).dt.tz_localize(None)
+                frame[const.REPORT_DATE_XLS] = pd.to_datetime(
+                    frame[const.REPORT_DATE_XLS]).dt.tz_localize(None)
+                attrs = frame.attrs.copy()
+                frame = frame.merge(prices, on=const.REPORT_DATE_XLS, how="left")
+                frame.attrs = attrs
+
+        frame[const.DATE] = pd.to_datetime(frame[const.REPORT_DATE_XLS])
+        attrs = frame.attrs.copy()
+        frame = frame.set_index(const.DATE)
+        # Reattach after set_index: pandas drops attrs across most operations, which
+        # is why get_symbols_data does the same thing at the end.
+        frame.attrs = attrs
+        return frame
 
     def get_available_dates(self):
         if not self.asset_class_map or not self.instruments:
