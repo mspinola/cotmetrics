@@ -90,6 +90,14 @@ export COTDATA_STORE=~/code/cotdata_store     # shared data store
 pytest
 ```
 
+## Docs
+
+- [Two properties of positioning series that break naive statistics on them](docs/positioning-series-properties.md).
+  Percentile exceedances arrive in episodes, so a count of them is not a sample size; and
+  correlating positioning levels is spurious, because the series is near unit-root. Worth
+  reading before computing a standard error, a p-value, or a correlation on anything this
+  package emits.
+
 ## License
 
 MIT — see [LICENSE](LICENSE).
