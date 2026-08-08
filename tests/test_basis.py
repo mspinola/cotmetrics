@@ -70,6 +70,10 @@ def stub_self(monkeypatch):
 
     return types.SimpleNamespace(
         last_known_db_time="t0",
+        # The staleness check moved out of get_symbols_data into its own method, so the
+        # stand-in has to carry it. Returning False is the same "store has not moved"
+        # answer the matching timestamps above used to produce inline.
+        refresh_if_stale=lambda: False,
         get_instrument_from_name=lambda name: instrument,
         is_equity=lambda name: False,
         _seen=seen,
