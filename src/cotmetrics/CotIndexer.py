@@ -1,5 +1,7 @@
+import copy
 import json
 import os
+import threading
 from functools import lru_cache
 
 import pandas as pd
@@ -58,6 +60,23 @@ class Instrument:
         return f"{self.name} {self.symbol} {self.code} {self.custom_lookback}"
 
 
+class _IndexState:
+    """The three collections a rebuild replaces, grouped so they swap as one.
+
+    They are load-bearing together: `supported_instruments` is iterated to index into
+    `instruments`, and `asset_class_map` names the assets a page asks for. Rebinding
+    them one at a time would let a reader pair a new asset_class_map with an old
+    instruments dict. One reference, one rebind, no straddle.
+    """
+
+    __slots__ = ("instruments", "supported_instruments", "asset_class_map")
+
+    def __init__(self):
+        self.instruments = dict()
+        self.supported_instruments = set()
+        self.asset_class_map = dict()
+
+
 class CotIndexer:
     def __init__(self, real_test_data_dir=None, params_dir=None):
         import cotmetrics.config as config
@@ -67,10 +86,14 @@ class CotIndexer:
         self.params_dir = params_dir if params_dir else config.params_path()
 
         self.last_known_db_time = cotDatabase.latest_update_timestamp()
+        # Serializes refresh_if_stale across Dash worker threads, so concurrent pollers
+        # produce one rebuild rather than several. It does NOT guard readers: they never
+        # take it, and never block, because a refresh publishes by rebinding _state.
+        self._refresh_lock = threading.RLock()
 
-        self.instruments = dict()
-        self.supported_instruments = set()
-        self.asset_class_map = dict()
+        # Reached through the properties below rather than assigned directly, so a
+        # refresh can build a replacement off to the side and publish it in one bind.
+        self._state = _IndexState()
         self.role_config = {}
         self.lookbacks = []
         self.years = []
@@ -93,6 +116,22 @@ class CotIndexer:
         # The daily options fetch is NOT run here — constructing/importing the
         # indexer must not trigger live network I/O. The app calls
         # core.indexer.boot_options_update() explicitly at startup instead.
+
+    # Read-only views onto the current state. Every existing `self.instruments[...]`
+    # call site keeps working unchanged, including the ones that mutate the dict in
+    # place during a build. What they can no longer do is rebind the collection out
+    # from under a reader, which is the whole point.
+    @property
+    def instruments(self):
+        return self._state.instruments
+
+    @property
+    def supported_instruments(self):
+        return self._state.supported_instruments
+
+    @property
+    def asset_class_map(self):
+        return self._state.asset_class_map
 
     def load_years(self):
         with open(self.params_dir, 'r') as yf:
@@ -1152,6 +1191,100 @@ class CotIndexer:
             return True
         return False
 
+    def refresh_if_stale(self):
+        """Rebuild the in-memory index if the producer has written a newer COT week.
+
+        Returns True if a rebuild happened, False if the store had not moved.
+
+        The freshness signal is ``status.json`` in the cotdata store, read uncached
+        through ``cotDatabase.latest_update_timestamp``. That file is rewritten once,
+        atomically (tmp file + os.replace), at the very end of a producer run and
+        after every report kind has landed, precisely so consumers can poll it. So a
+        poll can see the old week or the new one, never a half-written store.
+
+        This logic used to live inline at the top of get_symbols_data, where it could
+        not do its job: it was guarded by that method's own lru_cache, so on a cache
+        HIT the body never ran and the check never fired. The cache holds 256 entries
+        against 252 live keys (42 instruments x 2 bases x 3 lookbacks), so the board
+        goes warm within minutes of boot and from then on essentially every call is a
+        hit. In practice the check only fired when someone happened to request a
+        combination nobody had requested since startup. Observed 2026-08-07: the store
+        took the 2026-08-04 week at 16:09 local, the navbar badge (which reads the same
+        status.json, uncached, on a 5-minute interval) showed it immediately, and every
+        page kept serving 2026-07-28 until 20:52 when a cold key finally missed. Call
+        this from a poller instead. The call left in get_symbols_data now only covers
+        the cold-start case.
+
+        Rebuilding takes ~2 minutes on the full universe, and the navbar interval fires
+        once per open browser tab, so concurrent callers are ordinary rather than
+        exotic. The lock makes the second caller wait for the first rather than start a
+        duplicate rebuild, and the re-check under it means it then returns immediately.
+
+        The new state is built off to the side and published in a single rebind, so a
+        request served during those two minutes sees the previous week whole rather
+        than a half-updated universe. See _build_state.
+        """
+        if cotDatabase.latest_update_timestamp() == self.last_known_db_time:
+            return False
+
+        with self._refresh_lock:
+            current_db_time = cotDatabase.latest_update_timestamp()
+            if current_db_time == self.last_known_db_time:
+                return False
+
+            utils.cot_logger.warning(f"New database data detected ({current_db_time}). Rebuilding index.")
+            new_state = self._build_state()
+
+            # Publish. One rebind of one reference, so a reader either sees the whole
+            # old week or the whole new one.
+            self._state = new_state
+
+            # Only now drop the memoized frames, which are the old week's. Clearing
+            # BEFORE the build (as this used to) would have refilled them from the old
+            # state during the two minutes the build was running, so the stale entries
+            # came straight back and outlived the swap.
+            self.get_symbols_data.__func__.cache_clear()
+            self.get_asset_class_z_score_heat.__func__.cache_clear()
+            self.get_asset_class_index_heat.__func__.cache_clear()
+            self.get_positioning_table_by_asset_class.__func__.cache_clear()
+            self.get_category_data.__func__.cache_clear()
+
+            # Adopt the stamp only after a build that actually succeeded. Setting it
+            # first (as this used to, to stop the in-place rebuild recursing) meant a
+            # build that raised would have claimed data it never loaded, and no later
+            # poll would retry. Recursion is no longer the risk it guards against: the
+            # build runs against a separate object, not self.
+            self.last_known_db_time = current_db_time
+            utils.cot_logger.info("Updated instruments and recalculated metrics with latest database data.")
+            return True
+
+    def _build_state(self):
+        """Build a complete replacement _IndexState without touching the live one.
+
+        populate_instruments and calculate_weekly_data are written against `self`, and
+        they mutate Instrument.df in place. Run them on this object and every page
+        rendered during the ~2 minute rebuild reads frames mid-mutation. So they are run
+        against a shallow copy that has been given its own empty state: same config,
+        same params, same already-loaded years/lookbacks/roles, but its own instruments.
+
+        Shallow is what makes this cheap and also what makes it correct. The builder
+        shares the immutable-in-practice config by reference and only ever writes
+        through `_state`, which is the one attribute reassigned to a fresh object.
+        load_years and load_roles are deliberately NOT re-run: they append to shared
+        lists, so a second pass would double their contents.
+
+        A fresh CotIndexer() would be the obvious alternative and is wrong here, because
+        __init__ tries try_load_from_cache first and that check tests for column presence
+        rather than freshness. It would happily load the very parquet cache this rebuild
+        exists to replace.
+        """
+        builder = copy.copy(self)
+        builder._state = _IndexState()
+        builder.load_instruments()
+        builder.populate_instruments()
+        builder.calculate_weekly_data()
+        return builder._state
+
     # Sized to hold the whole board rather than a round number: 42 instruments x 2 bases
     # x 3 lookbacks = 252 distinct keys. At the previous 128 a single flip of the Home
     # page's lookback or model selector evicted frames the *previous* selection was still
@@ -1177,20 +1310,9 @@ class CotIndexer:
         normalized = basis == const.BASIS_OI_NORM
         lookback = " " + lookback
 
-        # If the downloader found new data, clear the cache inside the web process!
-        current_db_time = cotDatabase.latest_update_timestamp()
-        if current_db_time != self.last_known_db_time:
-            print(f"\n\n!!!!New database data detected! Clearing RAM cache. {current_db_time}\n\n")
-            utils.cot_logger.warning("New database data detected! Clearing RAM cache.")
-            self.get_symbols_data.__func__.cache_clear()
-            self.get_asset_class_z_score_heat.__func__.cache_clear()
-            self.get_asset_class_index_heat.__func__.cache_clear()
-            self.get_positioning_table_by_asset_class.__func__.cache_clear()
-            self.get_category_data.__func__.cache_clear()
-            self.last_known_db_time = current_db_time
-            self.populate_instruments()  # Refresh instruments with new data
-            self.calculate_weekly_data()  # Recalculate all metrics for the updated data
-            utils.cot_logger.info("Updated instruments and recalculated metrics with latest database data.")
+        # Cold-start path only. This call cannot be relied on to notice new data,
+        # because it sits inside this method's own lru_cache: see refresh_if_stale.
+        self.refresh_if_stale()
 
         instrument = self.get_instrument_from_name(name)
         if instrument is not None:
