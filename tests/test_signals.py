@@ -160,11 +160,11 @@ def test_compute_weekly_rejection_scores_ignores_post_cutoff_bars(monkeypatch):
     cot_date = dates[5]
     cot_index = pd.DatetimeIndex([cot_date])
 
-    monkeypatch.setattr(signals.cotdata, "get_prices",
+    monkeypatch.setattr(signals.marketdata, "get_bars",
                         lambda *a, **k: _rejection_ohlc(dates, monster_post=False))
     calm = signals.compute_weekly_rejection_scores("TEST", cot_index)
 
-    monkeypatch.setattr(signals.cotdata, "get_prices",
+    monkeypatch.setattr(signals.marketdata, "get_bars",
                         lambda *a, **k: _rejection_ohlc(dates, monster_post=True))
     monster = signals.compute_weekly_rejection_scores("TEST", cot_index)
 

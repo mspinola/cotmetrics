@@ -2,7 +2,8 @@
 
 The Databento daily-price fetch that used to live here has moved to the dormant
 cotdata provider (cotdata/providers/databento.py). All live price reads now go
-through `cotdata.get_prices` (Norgate-backed store). Only the params.yaml-derived
+through `marketdata.get_bars` (Norgate-backed store; bars moved out of cotdata under
+ADR-0007). Only the params.yaml-derived
 `_SYMBOL_TO_NAME` map remains here — used by core.options_data for max-pain.
 """
 import yaml
