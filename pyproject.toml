@@ -26,7 +26,10 @@ dependencies = [
     "requests>=2.28",       # legacy CFTC ETL (cotmetrics.etl)
     "xlrd>=2.0",            # legacy CFTC dea_fut_xls are .xls
     "cotdata>=0.1.0",       # COT positioning; editable in the workspace: -e ../cotdata
-    "marketdata>=0.1.0",    # daily bars (ADR-0007 moved them out of cotdata): -e ../marketdata
+    # Daily bars (ADR-0007 moved them out of cotdata); editable: -e ../marketdata.
+    # The DISTRIBUTION is crucible-marketdata because `marketdata` on PyPI is an
+    # unrelated abandoned project; the IMPORT is still `marketdata`.
+    "crucible-marketdata>=0.1.0",
 ]
 
 [project.optional-dependencies]
