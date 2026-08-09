@@ -1,4 +1,5 @@
 import copy
+import importlib
 import json
 import os
 import threading
@@ -211,9 +212,15 @@ class CotIndexer:
 
     @staticmethod
     def _cache_schema_marker_path() -> str:
-        """Sidecar recording the cotdata schema_version and the cotmetrics
-        METRICS_CACHE_VERSION the caches were built under. A sidecar (not a df
-        column) so it never leaks into metrics/ML features."""
+        """Sidecar recording the schema versions of BOTH upstream stores plus the
+        cotmetrics METRICS_CACHE_VERSION the caches were built under. A sidecar (not
+        a df column) so it never leaks into metrics/ML features.
+
+        Two stores since ADR-0007: cotdata for COT positioning, marketdata for bars.
+        The filename is unchanged so existing markers still parse; a marker written
+        before the split has no marketdata version, reads as 0, and busts once —
+        which is the correct outcome, because the price source moved underneath it.
+        """
         return os.path.join(const.CACHE_DIR, "_cotdata_schema.json")
 
     @classmethod
@@ -233,6 +240,13 @@ class CotIndexer:
             return 0
 
     @classmethod
+    def _read_cache_marketdata_schema(cls) -> int:
+        try:
+            return int(cls._read_cache_marker().get("marketdata_schema_version", 0))
+        except (TypeError, ValueError):
+            return 0
+
+    @classmethod
     def _read_cache_metrics_version(cls) -> int:
         try:
             return int(cls._read_cache_marker().get("metrics_version", 0))
@@ -241,20 +255,30 @@ class CotIndexer:
 
     @classmethod
     def _stamp_cache_schema(cls) -> None:
-        """Record the cotdata schema_version and our METRICS_CACHE_VERSION next to
-        the parquet caches, so both an upstream store move and an internal
-        metrics-logic change bust the caches."""
+        """Record both upstream store schema versions and our METRICS_CACHE_VERSION
+        next to the parquet caches, so a move in either store — or an internal
+        metrics-logic change — busts the caches.
+
+        The two versions are kept as SEPARATE keys rather than combined. They are
+        independent counters, and collapsing them (a max, say) would hide a bump in
+        whichever store happens to sit at the lower number.
+        """
         marker = {"metrics_version": int(const.METRICS_CACHE_VERSION)}
-        try:
-            import cotdata
-            marker["schema_version"] = int(cotdata.schema_version())
-        except Exception as e:
-            # Preserve any previously recorded store schema rather than zeroing it
-            # (which would force a rebuild on every boot without cotdata).
-            prev = cls._read_cache_schema()
-            if prev:
-                marker["schema_version"] = prev
-            utils.cot_logger.warning(f"_stamp_cache_schema: cotdata schema unavailable: {e}")
+        # Preserve a previously recorded version rather than zeroing it when a store
+        # is unavailable, which would otherwise force a rebuild on every boot.
+        for key, mod_name, prev_read in (
+                ("schema_version", "cotdata", cls._read_cache_schema),
+                ("marketdata_schema_version", "marketdata",
+                 cls._read_cache_marketdata_schema)):
+            try:
+                mod = importlib.import_module(mod_name)
+                marker[key] = int(mod.schema_version())
+            except Exception as e:
+                prev = prev_read()
+                if prev:
+                    marker[key] = prev
+                utils.cot_logger.warning(
+                    f"_stamp_cache_schema: {mod_name} schema unavailable: {e}")
         try:
             os.makedirs(const.CACHE_DIR, exist_ok=True)
             with open(cls._cache_schema_marker_path(), "w") as f:
@@ -283,20 +307,26 @@ class CotIndexer:
                 f"— rebuilding all caches.")
             return False
 
-        # Bust all caches when the cotdata store schema moved (e.g. reconstructed
-        # volume promoted). The per-symbol guards below key on column *presence*,
-        # so they can't see a value-only change like front→reconstructed volume;
-        # the schema marker can.
-        try:
-            import cotdata
-            store_schema = int(cotdata.schema_version())
-            if self._read_cache_schema() < store_schema:
-                utils.cot_logger.info(
-                    f"try_load_from_cache: cache schema {self._read_cache_schema()} "
-                    f"< cotdata schema {store_schema} — rebuilding all caches.")
-                return False
-        except Exception as e:
-            utils.cot_logger.warning(f"try_load_from_cache: schema check skipped: {e}")
+        # Bust all caches when EITHER upstream store's schema moved. The per-symbol
+        # guards below key on column *presence*, so they cannot see a value-only
+        # change like front→reconstructed volume; a schema marker can.
+        #
+        # Both stores are checked, and that is the point rather than tidiness. The
+        # example this guard was written for — reconstructed volume promoted — was a
+        # PRICE schema bump, and prices moved to marketdata under ADR-0007. Watching
+        # cotdata alone would leave the case it exists for uncovered.
+        for mod_name, cached in (("cotdata", self._read_cache_schema),
+                                 ("marketdata", self._read_cache_marketdata_schema)):
+            try:
+                store_schema = int(importlib.import_module(mod_name).schema_version())
+                if cached() < store_schema:
+                    utils.cot_logger.info(
+                        f"try_load_from_cache: cache {mod_name} schema {cached()} "
+                        f"< store schema {store_schema} — rebuilding all caches.")
+                    return False
+            except Exception as e:
+                utils.cot_logger.warning(
+                    f"try_load_from_cache: {mod_name} schema check skipped: {e}")
 
         self.years[-1]
 
@@ -707,16 +737,19 @@ class CotIndexer:
                             instrument.df[col] = fallback_df[col]
                     return fallback_df
 
-        # The per-instrument cache above missed, so read the bars from the cotdata store.
-        # This is a local parquet read, not a fetch: cotdata.get_prices never goes to the
-        # network. Say so, because a message about downloading sends anyone debugging a
-        # slow or failing boot looking for a network problem that cannot exist.
+        # The per-instrument cache above missed, so read the bars from the marketdata
+        # store. This is a local parquet read, not a fetch: marketdata.get_bars never goes
+        # to the network. Say so, because a message about downloading sends anyone
+        # debugging a slow or failing boot looking for a network problem that cannot exist.
+        #
+        # Bars moved out of cotdata under ADR-0007, which makes cotdata CFTC positioning
+        # only. COT reads in this file still go to cotdata; only prices moved.
         if price_data is None:
-            print(f"Reading {symbol} prices from the cotdata store...")
+            print(f"Reading {symbol} prices from the marketdata store...")
             try:
-                import cotdata
+                import marketdata
                 start_date = f"{years[0]}-01-01"
-                price_data = cotdata.get_prices(symbol, adjustment='backadj', start=start_date)
+                price_data = marketdata.get_bars(symbol, 'backadj', start=start_date)
             except Exception as e:
                 print(f"Error reading prices for {symbol} from the store: {e}")
                 utils.cot_logger.error(f"Error reading prices for {symbol} from the store: {e}")

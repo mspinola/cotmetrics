@@ -276,3 +276,55 @@ def test_cache_schema_guards_key_on_persisted_columns():
         assert "LEV_LONG_PSIZE_IDX" not in src, fn.__name__
         assert "MM_LONG_POS_XLS" in src, fn.__name__
         assert "LEV_LONG_POS_XLS" in src, fn.__name__
+
+
+def test_cache_marker_watches_both_upstream_stores(tmp_path, monkeypatch):
+    """ADR-0007 split the upstream: COT stays in cotdata, bars moved to marketdata.
+
+    The cache-busting marker was written for a PRICE schema bump — reconstructed
+    volume being promoted — and prices are no longer in cotdata. Watching cotdata
+    alone would leave uncovered the exact case the guard exists for, and the failure
+    is silent: stale cached metrics computed off a superseded bar schema, with no
+    error anywhere.
+
+    The two versions are kept as separate keys on purpose. Collapsing them into one
+    number (a max, say) would hide a bump in whichever store sits lower.
+    """
+    import cotmetrics.constants as const
+    from cotmetrics.CotIndexer import CotIndexer
+
+    # Both roots must be set for either version to be readable: each store raises on
+    # an unset root rather than defaulting to somewhere nobody looks.
+    monkeypatch.setenv("COTDATA_STORE", str(tmp_path / "cot"))
+    monkeypatch.setenv("MARKETDATA_STORE", str(tmp_path / "bars"))
+    import marketdata.store as md_store
+    md_store.stamp_flags()          # give the bar store a manifest to report
+
+    monkeypatch.setattr(const, "CACHE_DIR", str(tmp_path / "cache"))
+    CotIndexer._stamp_cache_schema()
+
+    marker = CotIndexer._read_cache_marker()
+    assert "schema_version" in marker, "cotdata's store version is not recorded"
+    assert "marketdata_schema_version" in marker, (
+        "marketdata's store version is not recorded, so a bar schema bump would "
+        "not bust the caches computed from it")
+    assert CotIndexer._read_cache_marketdata_schema() >= 1
+
+
+def test_a_marker_predating_the_split_busts_once(tmp_path, monkeypatch):
+    """Backward compatibility, and the right kind of it. A marker written before the
+    split records no marketdata version; that reads as 0, which is below any real
+    store and therefore forces exactly one rebuild. Correct rather than merely
+    tolerated — the price source moved underneath those caches."""
+    import json
+
+    import cotmetrics.constants as const
+    from cotmetrics.CotIndexer import CotIndexer
+
+    monkeypatch.setattr(const, "CACHE_DIR", str(tmp_path))
+    with open(CotIndexer._cache_schema_marker_path(), "w") as f:
+        json.dump({"metrics_version": const.METRICS_CACHE_VERSION,
+                   "schema_version": 99}, f)      # old marker: cotdata only
+
+    assert CotIndexer._read_cache_schema() == 99
+    assert CotIndexer._read_cache_marketdata_schema() == 0

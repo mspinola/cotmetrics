@@ -1,6 +1,6 @@
 import types
 
-import cotdata
+import marketdata
 import numpy as np
 import pandas as pd
 
@@ -1024,8 +1024,10 @@ def compute_weekly_rejection_scores(symbol: str, cot_dates: pd.DatetimeIndex, fo
     feature cannot peek past the entry the way the old post-cutoff window did — see
     ``prior_week_rejection_window``.
     """
-    # force_refresh is now a no-op: prices come from the cotdata store (producer-updated).
-    daily_df = cotdata.get_prices(symbol, adjustment="backadj")
+    # force_refresh is now a no-op: prices come from the marketdata store
+    # (producer-updated). Moved off cotdata by ADR-0007, which makes cotdata CFTC
+    # positioning only; the tier name and the returned frame are unchanged.
+    daily_df = marketdata.get_bars(symbol, "backadj")
     if daily_df is None or daily_df.empty:
         return pd.DataFrame()
 

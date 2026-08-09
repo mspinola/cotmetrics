@@ -25,7 +25,8 @@ dependencies = [
     "pytz",
     "requests>=2.28",       # legacy CFTC ETL (cotmetrics.etl)
     "xlrd>=2.0",            # legacy CFTC dea_fut_xls are .xls
-    "cotdata>=0.1.0",       # shared data layer; editable in the workspace: -e ../cotdata
+    "cotdata>=0.1.0",       # COT positioning; editable in the workspace: -e ../cotdata
+    "marketdata>=0.1.0",    # daily bars (ADR-0007 moved them out of cotdata): -e ../marketdata
 ]
 
 [project.optional-dependencies]
