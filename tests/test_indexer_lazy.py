@@ -8,6 +8,8 @@ to defer their imports into function bodies. These tests pin the property that f
 """
 import subprocess
 import sys
+import threading
+import time
 
 import pytest
 
@@ -71,6 +73,70 @@ def test_get_indexer_caches_the_singleton(monkeypatch):
     first, second = indexer.get_indexer(), indexer.get_indexer()
     assert first is second
     assert len(built) == 1
+
+
+def test_concurrent_callers_build_exactly_one_indexer(monkeypatch):
+    """The build is serialized, so a thundering herd on a cold start builds once.
+
+    The single-threaded test above passes even with a completely unguarded
+    `if _indexer is None`, because nothing interleaves. This is the one that would
+    have failed before the lock: the fake sleeps inside __init__, which is where the
+    real one spends ~90 seconds, so every thread reaches the None check before any
+    assignment lands. Without the lock this builds once per thread.
+    """
+    built = []
+    barrier = threading.Barrier(8)
+
+    class SlowIndexer:
+        def __init__(self):
+            built.append(1)
+            time.sleep(0.2)   # the window an unguarded check leaves wide open
+
+    monkeypatch.setattr(indexer, "CotIndexer", SlowIndexer)
+    indexer.reset_indexer()
+
+    got = []
+
+    def call():
+        barrier.wait()        # release all threads at the same instant
+        got.append(indexer.get_indexer())
+
+    threads = [threading.Thread(target=call) for _ in range(8)]
+    for t in threads:
+        t.start()
+    for t in threads:
+        t.join(timeout=30)
+
+    assert not any(t.is_alive() for t in threads), "a caller never returned (deadlock?)"
+    assert len(built) == 1, f"built {len(built)} indexers, expected 1"
+    assert len(got) == 8
+    assert all(g is got[0] for g in got), "callers got different indexer objects"
+
+
+def test_reset_during_a_build_does_not_resurrect_the_old_indexer(monkeypatch):
+    """A reset that overlaps a build waits for it, then clears it.
+
+    Otherwise the reset lands mid-build and the completing assignment undoes it, and
+    the next caller is handed the object the reset was supposed to discard.
+    """
+    monkeypatch.setattr(indexer, "CotIndexer", lambda: object())
+    indexer.reset_indexer()
+
+    started = threading.Event()
+
+    class SlowIndexer:
+        def __init__(self):
+            started.set()
+            time.sleep(0.3)
+
+    monkeypatch.setattr(indexer, "CotIndexer", SlowIndexer)
+    builder = threading.Thread(target=indexer.get_indexer)
+    builder.start()
+    started.wait(timeout=5)
+    indexer.reset_indexer()      # blocks until the build finishes, then clears
+    builder.join(timeout=30)
+
+    assert indexer._indexer is None, "reset was undone by the completing build"
 
 
 def test_legacy_cotIndexer_name_still_resolves(monkeypatch):
