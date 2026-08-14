@@ -1,69 +1,55 @@
-import os
-import sys
-import smtplib
-from email.mime.multipart import MIMEMultipart
-from email.mime.text import MIMEText
-from email.mime.application import MIMEApplication
-from pathlib import Path
-from datetime import datetime
-import pandas as pd
+"""Send the weekly Signal Matrix email from the command line.
 
-# Setup paths
+A thin CLI. The building and sending live in `cotmetrics.weekly_email`, because this
+is no longer the only caller: cot-analyzer's Admin button shells out to this file, and
+its store poller sends in-process when the COT week advances. Keeping the logic here
+would have forked the subject line and the attachment three ways.
+
+Configuration is the environment (EMAIL_USER, RECEIVER_EMAIL_USER, EMAIL_PASSWORD).
+This file loads no .env of its own: the process that invokes it decides what it can
+send as, which is what lets the same script be safe in a crontab, under systemd, and
+behind an Admin button.
+"""
+import argparse
+import sys
+from pathlib import Path
+
+# Support running straight from a checkout (python scripts/...), where cotmetrics may
+# not be installed. Harmless when it is.
 _PROJECT_ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(_PROJECT_ROOT / "src"))
 
-from cotmetrics.reports import get_matrix_data, generate_matrix_html
+from cotmetrics.weekly_email import (  # noqa: E402
+    WeeklyEmailNotConfigured,
+    send_weekly_matrix_email,
+)
 
-def send_test_email():
-    email_user = os.getenv("EMAIL_USER")
-    receiver_email = os.getenv("RECEIVER_EMAIL_USER")
-    email_password = os.getenv("EMAIL_PASSWORD")
 
-    if not all([email_user, receiver_email, email_password]):
-        print("Error: Missing required email environment variables (EMAIL_USER, RECEIVER_EMAIL_USER, EMAIL_PASSWORD).")
-        print("Please export them or use generate-weekly-report-email.sh")
-        sys.exit(1)
+def main(argv=None):
+    parser = argparse.ArgumentParser(description="Send the weekly Signal Matrix email.")
+    parser.add_argument(
+        "--lookback", default="Custom",
+        help="index lookback window, matching the site's selector (default: Custom)")
+    parser.add_argument(
+        "--report-date", default=None,
+        help="override the COT week in the subject line. Defaults to the week the "
+             "matrix itself carries, which is almost always what you want")
+    args = parser.parse_args(argv)
 
-    print("[*] Generating Signal Matrix Data (Custom lookback)...")
-    # Using Custom as the default lookback so it matches the web UI
-    df = get_matrix_data(asset_classes=None, lookback="Custom")
-    
-    if df.empty:
-        print("[!] Warning: DataFrame is empty. Ensure CotIndexer is populated.")
-        
-    report_date = datetime.now().strftime("%Y-%m-%d")
-    print(f"[*] Generating HTML payload for {report_date}...")
-    html_content = generate_matrix_html(df, report_date=report_date)
-
-    print(f"[*] Assembling email from {email_user} to {receiver_email}...")
-    msg = MIMEMultipart("mixed")
-    msg["Subject"] = f"📊 COT Signal Matrix — {report_date}"
-    msg["From"] = email_user
-    msg["To"] = receiver_email
-
-    # 1. Attach HTML body (nested inside an alternative part)
-    alt_part = MIMEMultipart("alternative")
-    alt_part.attach(MIMEText("Please enable HTML to view this email.", "plain"))
-    alt_part.attach(MIMEText(html_content, "html"))
-    msg.attach(alt_part)
-
-    # 2. Attach CSV
-    if not df.empty:
-        csv_bytes = df.to_csv(index=False).encode('utf-8')
-        part_csv = MIMEApplication(csv_bytes, Name=f"cot_signals_{report_date}.csv")
-        part_csv['Content-Disposition'] = f'attachment; filename="cot_signals_{report_date}.csv"'
-        msg.attach(part_csv)
-
+    print("[*] Building the Signal Matrix...")
     try:
-        print("[*] Connecting to smtp.gmail.com:465...")
-        server = smtplib.SMTP_SSL("smtp.gmail.com", 465)
-        server.login(email_user, email_password)
-        server.sendmail(email_user, receiver_email, msg.as_string())
-        server.quit()
-        print("[✔] Email sent successfully!")
+        report_date = send_weekly_matrix_email(report_date=args.report_date,
+                                               lookback=args.lookback)
+    except WeeklyEmailNotConfigured as e:
+        print(f"[!] Not configured: {e}")
+        return 1
     except Exception as e:
         print(f"[!] Failed to send email: {e}")
-        sys.exit(1)
+        return 1
+
+    print(f"[*] Email sent for the {report_date} report.")
+    return 0
+
 
 if __name__ == "__main__":
-    send_test_email()
+    sys.exit(main())
