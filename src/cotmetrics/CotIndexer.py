@@ -78,6 +78,24 @@ class _IndexState:
         self.asset_class_map = dict()
 
 
+def _no_new_week(current, last_known):
+    """Should refresh_if_stale stand down?
+
+    Split out and named for the case that is not the obvious one. `current is None`
+    is cotDatabase.latest_update_timestamp saying it could not read the store, which
+    is NOT the same as reading a different week, and the difference costs a ~90
+    second rebuild. Replication is not atomic (see that method), so a mid-sync poll
+    reads nothing and must be waited out rather than acted on. A real new week is
+    still sitting there for the next poll five minutes later.
+
+    `last_known is None` and a readable `current` IS a new week, deliberately: the
+    only way to hold None is an unreadable read at construction, so the index was
+    built against a store whose week we never learned. Rebuilding once to find out
+    is the safe direction.
+    """
+    return current is None or current == last_known
+
+
 class CotIndexer:
     def __init__(self, real_test_data_dir=None, params_dir=None):
         import cotmetrics.config as config
@@ -1233,7 +1251,12 @@ class CotIndexer:
         through ``cotDatabase.latest_update_timestamp``. That file is rewritten once,
         atomically (tmp file + os.replace), at the very end of a producer run and
         after every report kind has landed, precisely so consumers can poll it. So a
-        poll can see the old week or the new one, never a half-written store.
+        poll ON THE PRODUCER can see the old week or the new one, never a half-written
+        store. A consumer reads a REPLICA, which robocopy and rsync do not deliver
+        atomically, so it has a third outcome: no answer at all, mid-sync. That is
+        ``None``, and _no_new_week stands down on it rather than rebuilding. Before
+        that it arrived as the string "Unknown" and read as a new week, which cost two
+        spurious rebuilds on 2026-08-14.
 
         This logic used to live inline at the top of get_symbols_data, where it could
         not do its job: it was guarded by that method's own lru_cache, so on a cache
@@ -1257,12 +1280,13 @@ class CotIndexer:
         request served during those two minutes sees the previous week whole rather
         than a half-updated universe. See _build_state.
         """
-        if cotDatabase.latest_update_timestamp() == self.last_known_db_time:
+        if _no_new_week(cotDatabase.latest_update_timestamp(),
+                        self.last_known_db_time):
             return False
 
         with self._refresh_lock:
             current_db_time = cotDatabase.latest_update_timestamp()
-            if current_db_time == self.last_known_db_time:
+            if _no_new_week(current_db_time, self.last_known_db_time):
                 return False
 
             utils.cot_logger.warning(f"New database data detected ({current_db_time}). Rebuilding index.")
