@@ -78,6 +78,30 @@ The script reads `status.json`'s `newest_data.cot_legacy` before and after the u
 runs `scripts/generate-weekly-report-email.sh` only on a change, so re-running across the
 release window is a harmless no-op until the CFTC zip lands.
 
+**This route suits a box that produces COT.** It runs `cotdata-update` itself, so on a
+box whose store is a replica fed by a producer push, it would make a second producer
+racing that push. Such a box has no download to trigger on, and should instead let the
+consuming app send: cot-analyzer's store poller notices `status.json` advancing and
+calls `cotmetrics.weekly_email` in-process, guarded by an opt-in flag and a ledger so it
+sends once per COT week. Sending in-process also means the email inherits the app's own
+`COTMETRICS_PARAMS`, which is worth more than it sounds: unset, that silently resolves
+to the 6-symbol SAMPLE universe, and an email covering six markets looks exactly like an
+email covering forty-seven.
+
+### Sending it directly
+
+`scripts/generate-weekly-report-email.py` sends one now, and is a thin CLI over
+`cotmetrics.weekly_email.send_weekly_matrix_email`. It reads three variables from the
+environment of the process invoking it and loads no `.env` of its own:
+
+| env | meaning |
+|-----|---------|
+| `EMAIL_USER` | the sending account |
+| `RECEIVER_EMAIL_USER` | where the report goes |
+| `EMAIL_PASSWORD` | an app password, not the account password |
+
+The subject line names the COT week the matrix carries, not the day the send ran.
+
 ## Development (from source)
 
 Developed alongside its sibling repos in a shared workspace, with `cotdata` installed
