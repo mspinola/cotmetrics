@@ -83,6 +83,27 @@ class CotDatabase:
         return df
 
     def latest_update_timestamp(self):
+        """The COT week the store currently holds, as ``YYYY-MM-DD``, or ``None``.
+
+        ``None`` means NO ANSWER, never "no data". Callers must not treat it as a
+        value that can differ from a previous one, which is exactly what the string
+        this used to return did.
+
+        The producer rewrites status.json atomically (tmp file + os.replace), so a
+        read on the producer sees one week or the other. THAT GUARANTEE DOES NOT
+        SURVIVE REPLICATION: the Mac and the VPS get the file through robocopy and
+        rsync, neither of which replaces it atomically, so a consumer polling a
+        replica mid-sync can read a truncated or absent file. Observed 2026-08-14
+        15:35, two minutes after the 2026-08-11 week landed: json.load raised
+        "Expecting value: line 1 column 1 (char 0)".
+
+        The old return of "Unknown" turned that momentary read failure into a
+        freshness signal. refresh_if_stale compares against the last known value, so
+        "Unknown" != "2026-08-11" read as a new week and cost a full ~90 second index
+        rebuild, then a second one when the next poll read the real date again. Three
+        rebuilds for one release, and the navbar badge briefly read
+        "CFTC Data Release: Unknown".
+        """
         try:
             import json
 
@@ -92,14 +113,15 @@ class CotDatabase:
                 with open(status_file, "r") as f:
                     status = json.load(f)
 
-                newest_data = status.get("domains", {}).get("cot_legacy", {}).get("newest_data")
-                if newest_data:
-                    # newest_data is already in YYYY-MM-DD format
-                    return newest_data
+                # newest_data is already in YYYY-MM-DD format. Absent or null is a
+                # store that has never taken a COT run, which is no answer either.
+                return (status.get("domains", {})
+                              .get("cot_legacy", {})
+                              .get("newest_data")) or None
         except Exception as e:
             utils.get_cot_logger().error(f"Error reading status.json for timestamp: {e}")
 
-        return "Unknown"
+        return None
 
     def save_predictions(self, symbol, report_date, prob_success, meta_side, expectancy=None, atr_mult_tp=None, atr_mult_sl=None):
         conn = sqlite3.connect(self.db_name)
