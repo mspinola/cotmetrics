@@ -793,7 +793,25 @@ class CotIndexer:
             try:
                 import marketdata
                 start_date = f"{years[0]}-01-01"
-                price_data = marketdata.get_bars(symbol, 'backadj', start=start_date)
+                # No tier named, deliberately. marketdata resolves it from the
+                # symbol's DOMAIN, which is a registry fact: 'backadj' for futures,
+                # 'split' for equities. Naming 'backadj' here asked for a futures
+                # adjustment on every symbol, so the two priced off ETF proxies
+                # (MFS, MME) raised and got no prices at all.
+                price_data = marketdata.get_bars(symbol, start=start_date)
+                if price_data.empty:
+                    # Not an error, and NOT to be left silent either. A store that
+                    # simply lacks a symbol returns an empty frame rather than
+                    # raising, which is the documented read semantics and the exact
+                    # shape that once let blank price charts go unnoticed for days
+                    # (see cot-analyzer main.py::check_price_store). Say which symbol
+                    # and stop, rather than carrying an empty frame forward as though
+                    # a read had succeeded.
+                    utils.cot_logger.warning(
+                        f"{symbol}: no bars in the marketdata store, so every "
+                        f"price-derived column for it will be empty. Expected for a "
+                        f"market priced off an ETF proxy that has not been seeded "
+                        f"into the equities half (MFS -> EFA, MME -> EEM).")
             except Exception as e:
                 print(f"Error reading prices for {symbol} from the store: {e}")
                 utils.cot_logger.error(f"Error reading prices for {symbol} from the store: {e}")
