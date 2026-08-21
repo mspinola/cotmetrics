@@ -47,7 +47,10 @@ def test_the_rejection_scores_read_does_not_pin_a_tier(monkeypatch):
     monkeypatch.setattr(signals.marketdata, "get_bars", spy)
     signals.compute_weekly_rejection_scores("MFS", pd.DatetimeIndex([]))
 
-    assert seen["symbol"] == "MFS"
+    # MFS resolves to its ETF proxy before the read (market_data.PRICE_PROXIES), so
+    # what reaches marketdata is EFA. Either way it is an equities-domain symbol, and
+    # the tier must be one an equity accepts.
+    assert seen["symbol"] == "EFA"
     assert seen["adjustment"] not in FUTURES_TIERS, (
         f"asked for {seen['adjustment']!r}, which raises on an equities symbol")
 
