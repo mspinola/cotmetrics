@@ -1027,7 +1027,9 @@ def compute_weekly_rejection_scores(symbol: str, cot_dates: pd.DatetimeIndex, fo
     # force_refresh is now a no-op: prices come from the marketdata store
     # (producer-updated). Moved off cotdata by ADR-0007, which makes cotdata CFTC
     # positioning only; the tier name and the returned frame are unchanged.
-    daily_df = marketdata.get_bars(symbol, "backadj")
+    # Tier resolved from the symbol's domain rather than pinned, so this works
+    # for the ETF-proxy equities as well as for futures.
+    daily_df = marketdata.get_bars(symbol)
     if daily_df is None or daily_df.empty:
         return pd.DataFrame()
 

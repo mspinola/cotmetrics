@@ -363,7 +363,9 @@ def update_all_daily_options():
     for symbol in _SYMBOL_TO_NAME.keys():
         try:
             # Fetch the latest prices to provide the live price for scaling the proxy ETF
-            price_df = marketdata.get_bars(symbol, "backadj")
+            # Tier left to marketdata: this loop covers the whole universe,
+            # including the ETF-proxy equities, and a futures tier raises on those.
+            price_df = marketdata.get_bars(symbol)
             if price_df is not None and not price_df.empty:
                 live_price = price_df['Close'].iloc[-1]
             else:
