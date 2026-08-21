@@ -78,6 +78,32 @@ class _IndexState:
         self.asset_class_map = dict()
 
 
+def _write_cache_atomic(df, cache_path):
+    """Write a per-symbol cache parquet so a reader never sees a partial file.
+
+    `to_parquet` straight onto the destination leaves a window in which the file
+    exists and is incomplete. That was survivable while each process had its own
+    CACHE_DIR. It is not once they share one: the app's store poller rebuilds on a
+    5 minute tick and npf's Friday jobs read the same directory, so a rebuild
+    overlapping a read is an ordinary Friday rather than an exotic race, and the
+    reader's failure would be a parquet error on a file that looks present.
+
+    Same tmp-then-replace shape cotdata uses for status.json, and for the same
+    reason: os.replace is atomic within a filesystem, so a reader sees the old
+    complete file or the new one.
+    """
+    tmp = f"{cache_path}.tmp-{os.getpid()}"
+    try:
+        df.to_parquet(tmp)
+        os.replace(tmp, cache_path)
+    except BaseException:
+        try:
+            os.remove(tmp)
+        except OSError:
+            pass
+        raise
+
+
 def _no_new_week(current, last_known):
     """Should refresh_if_stale stand down?
 
@@ -844,7 +870,7 @@ class CotIndexer:
 
                 utils.cot_logger.info(f"Integrated Weekly OHLC prices for {symbol}")
                 # Save to local cache
-                instrument.df.to_parquet(cache_path)
+                _write_cache_atomic(instrument.df, cache_path)
                 self._stamp_cache_schema()
                 return instrument.df
 
@@ -876,7 +902,7 @@ class CotIndexer:
                 df[const.LOW_PRICE] = 0
                 df[const.CLOSING_PRICE] = 0
                 # Save to local cache if no fallback exists
-                instrument.df.to_parquet(cache_path)
+                _write_cache_atomic(instrument.df, cache_path)
                 self._stamp_cache_schema()
                 return instrument.df
 
@@ -943,7 +969,7 @@ class CotIndexer:
 
             # Save the final calculated DataFrame to Parquet cache
             cache_path = os.path.join(const.CACHE_DIR, f"{self.instruments[instrument].symbol}.parquet")
-            self.instruments[instrument].df.to_parquet(cache_path)
+            _write_cache_atomic(self.instruments[instrument].df, cache_path)
 
 
 
