@@ -1029,7 +1029,8 @@ def compute_weekly_rejection_scores(symbol: str, cot_dates: pd.DatetimeIndex, fo
     # positioning only; the tier name and the returned frame are unchanged.
     # Tier resolved from the symbol's domain rather than pinned, so this works
     # for the ETF-proxy equities as well as for futures.
-    daily_df = marketdata.get_bars(symbol)
+    from cotmetrics.market_data import price_symbol
+    daily_df = marketdata.get_bars(price_symbol(symbol))
     if daily_df is None or daily_df.empty:
         return pd.DataFrame()
 

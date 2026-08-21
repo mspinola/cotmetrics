@@ -798,7 +798,15 @@ class CotIndexer:
                 # 'split' for equities. Naming 'backadj' here asked for a futures
                 # adjustment on every symbol, so the two priced off ETF proxies
                 # (MFS, MME) raised and got no prices at all.
-                price_data = marketdata.get_bars(symbol, start=start_date)
+                # MFS/MME have no futures series of their own, so they read an
+                # ETF. See market_data.PRICE_PROXIES for why that is a separate
+                # map from the options one and what the substitution costs.
+                from cotmetrics.market_data import price_symbol
+                px_symbol = price_symbol(symbol)
+                if px_symbol != symbol:
+                    utils.cot_logger.info(
+                        f"{symbol}: no futures series, pricing off {px_symbol}.")
+                price_data = marketdata.get_bars(px_symbol, start=start_date)
                 if price_data.empty:
                     # Not an error, and NOT to be left silent either. A store that
                     # simply lacks a symbol returns an empty frame rather than
@@ -808,10 +816,9 @@ class CotIndexer:
                     # and stop, rather than carrying an empty frame forward as though
                     # a read had succeeded.
                     utils.cot_logger.warning(
-                        f"{symbol}: no bars in the marketdata store, so every "
-                        f"price-derived column for it will be empty. Expected for a "
-                        f"market priced off an ETF proxy that has not been seeded "
-                        f"into the equities half (MFS -> EFA, MME -> EEM).")
+                        f"{symbol}: no bars in the marketdata store under "
+                        f"{px_symbol!r}, so every price-derived column for it will "
+                        f"be empty.")
             except Exception as e:
                 print(f"Error reading prices for {symbol} from the store: {e}")
                 utils.cot_logger.error(f"Error reading prices for {symbol} from the store: {e}")

@@ -357,7 +357,7 @@ def update_all_daily_options():
     import marketdata
 
     import cotmetrics.utils as utils
-    from cotmetrics.market_data import _SYMBOL_TO_NAME
+    from cotmetrics.market_data import _SYMBOL_TO_NAME, price_symbol
 
     utils.cot_logger.info("Starting daily options Max Pain fetch for all instruments...")
     for symbol in _SYMBOL_TO_NAME.keys():
@@ -365,7 +365,7 @@ def update_all_daily_options():
             # Fetch the latest prices to provide the live price for scaling the proxy ETF
             # Tier left to marketdata: this loop covers the whole universe,
             # including the ETF-proxy equities, and a futures tier raises on those.
-            price_df = marketdata.get_bars(symbol)
+            price_df = marketdata.get_bars(price_symbol(symbol))
             if price_df is not None and not price_df.empty:
                 live_price = price_df['Close'].iloc[-1]
             else:
