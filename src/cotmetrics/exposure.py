@@ -556,6 +556,7 @@ def expanding_quantile(series: pd.Series, q: float,
 
 def composite_price_index(names, *, base: float = 100.0,
                           max_staleness_days: int = DEFAULT_MAX_STALENESS_DAYS,
+                          numeraire: str = NUMERAIRE_USD,
                           dates=None, frames: dict = None) -> pd.Series:
     """An equal-weight price index of the SAME set the aggregate sums, rebased to `base`.
 
@@ -574,6 +575,23 @@ def composite_price_index(names, *, base: float = 100.0,
     roll, so this index inherits those steps. It is a reference for shape and direction
     over years, not a tradeable return series, and nothing here computes a return from
     it.
+
+    Under NUMERAIRE_GOLD this is the set priced in gold, which is Larry Williams'
+    WillVal applied to a complex rather than to one market: an asset measured against a
+    hard-money benchmark rather than against a currency. It has to follow the numeraire
+    rather than staying in dollars, because a price panel above an exposure panel is a
+    reference for it, and a reference in a different unit from its subject is the same
+    defect as the printed source's S&P-over-four-markets.
+
+    The transform is exact rather than approximate. Rebasing each member to its own
+    first observation and then dividing by gold gives `(p/p0) x (g0/g)`, which is what
+    dividing the finished composite by gold and rebasing gives, so this applies it once
+    at the end.
+
+    What it shows is worth stating, because it is the reason to offer it. Since August
+    2002 the US equity-index composite is up 13.88x in dollars and 0.99x in gold: the
+    same value in hard money, after twenty-four years. Grains are 2.04x in dollars and
+    0.13x in gold.
     """
     frames = frames or {}
     series = {}
@@ -609,6 +627,12 @@ def composite_price_index(names, *, base: float = 100.0,
         return pd.Series(dtype="float64", name="composite")
     rebased = frame.divide(frame.iloc[0], axis=1) * base
     out = rebased.mean(axis=1)
+    divisor = numeraire_series(numeraire, out.index, max_staleness_days)
+    if divisor is not None:
+        out = out / divisor
+        first = out.dropna()
+        if not first.empty:
+            out = out / first.iloc[0] * base
     out.name = "composite"
     return out
 

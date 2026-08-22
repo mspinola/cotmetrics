@@ -458,3 +458,35 @@ def test_a_non_positive_gold_price_is_masked_rather_than_divided_by(monkeypatch)
 
 def test_both_numeraires_are_labelled():
     assert set(ex.NUMERAIRE_LABELS) == {ex.NUMERAIRE_USD, ex.NUMERAIRE_GOLD}
+
+
+def test_the_composite_follows_the_numeraire_so_it_stays_the_subjects_reference(monkeypatch):
+    """A price panel above an exposure panel is a reference for it, and a reference in a
+    different unit from its subject is the same defect as the printed source's
+    S&P-over-four-markets.
+
+    Under gold this is Larry Williams' WillVal applied to a complex: an asset measured
+    against a hard-money benchmark rather than a currency. Since August 2002 the US
+    equity composite is up 13.88x in dollars and 0.99x in gold.
+    """
+    monkeypatch.setattr(ex, "point_values", lambda: {"A": 1.0})
+    prices = {"A": daily("2026-01-01", [100.0, 200.0, 400.0]),
+              "GC": daily("2026-01-01", [1000.0, 1000.0, 4000.0])}
+    monkeypatch.setattr(ex, "price_levels", lambda s, *a, **k: prices[s])
+    frames = {"A": {"symbol": "A"}}
+    in_usd = ex.composite_price_index(["A"], frames=frames)
+    in_gold = ex.composite_price_index(["A"], numeraire=ex.NUMERAIRE_GOLD,
+                                       frames=frames)
+    assert list(in_usd) == [100.0, 200.0, 400.0]
+    # Price 4x, gold 4x: unchanged in gold, which is the whole point of the view.
+    assert list(in_gold) == [100.0, 200.0, 100.0]
+
+
+def test_the_gold_composite_still_starts_at_the_base(monkeypatch):
+    monkeypatch.setattr(ex, "point_values", lambda: {"A": 1.0})
+    prices = {"A": daily("2026-01-01", [37.0, 40.0]),
+              "GC": daily("2026-01-01", [1234.0, 1300.0])}
+    monkeypatch.setattr(ex, "price_levels", lambda s, *a, **k: prices[s])
+    got = ex.composite_price_index(["A"], numeraire=ex.NUMERAIRE_GOLD,
+                                   frames={"A": {"symbol": "A"}})
+    assert got.iloc[0] == pytest.approx(100.0)
