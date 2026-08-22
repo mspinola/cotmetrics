@@ -169,6 +169,35 @@ def test_a_member_with_no_multiplier_is_dropped_by_name_not_silently(monkeypatch
     assert agg.frame["n_markets"].iloc[0] == 1
 
 
+def test_the_total_carries_no_contracts_column_because_contracts_do_not_add(priced):
+    """Summing ES contracts and corn contracts gives a number in no unit, and the frame
+    that adds is the worst place to offer it: beside two columns that ARE summable and
+    named alike, it reads as a third of the same kind. It stays on each member, where
+    one market's contract count means something."""
+    agg = ex.aggregate_exposure(["A", "B"], leg=ex.LEG_COMM, frames=_two_market_frames())
+    assert "net_contracts" not in agg.frame.columns
+    assert set(agg.frame.columns) == {"notional_usd", "risk_usd", "n_markets",
+                                      "notional_pct_rank", "risk_pct_rank"}
+    assert all("net_contracts" in m.columns for m in agg.members.values())
+
+
+def test_the_empty_total_carries_the_same_columns_as_a_real_one(monkeypatch):
+    """An empty frame with a different column list is a second schema nothing tests, and
+    a caller that handles the empty case first would be written against it."""
+    monkeypatch.setattr(ex, "point_values", lambda: {})
+    real = ex.aggregate_exposure(["A", "B"], leg=ex.LEG_COMM,
+                                 frames=_two_market_frames())
+    assert real.frame.empty
+    monkeypatch.setattr(ex, "point_values", lambda: {"TEST": 50.0})
+    monkeypatch.setattr(ex, "price_levels",
+                        lambda s, *a, **k: daily("2026-01-01", [100.0] * 40))
+    monkeypatch.setattr(ex, "sigma_series",
+                        lambda s, **k: daily("2026-01-01", [0.02] * 40))
+    populated = ex.aggregate_exposure(["A", "B"], leg=ex.LEG_COMM,
+                                      frames=_two_market_frames())
+    assert list(real.frame.columns) == list(populated.frame.columns)
+
+
 def test_an_unbounded_total_names_no_bound(priced):
     agg = ex.aggregate_exposure(["A", "B"], leg=ex.LEG_COMM, frames=_two_market_frames())
     assert agg.bounded_by == {}
@@ -386,7 +415,8 @@ def test_the_table_names_its_percentile_columns_the_way_the_frame_does(priced):
 # ── the numeraire ─────────────────────────────────────────────────────────────
 
 def test_gold_divides_the_dollars_and_leaves_the_contracts_alone(monkeypatch, priced):
-    """Contracts are contracts under any numeraire."""
+    """Contracts are contracts under any numeraire. Read on the members, because the
+    total has no contracts column to read it on."""
     monkeypatch.setattr(ex, "price_levels",
                         lambda s, *a, **k: daily("2026-01-01", [100.0] * 40)
                         if s != "GC" else daily("2026-01-01", [2000.0] * 40))
@@ -396,7 +426,8 @@ def test_gold_divides_the_dollars_and_leaves_the_contracts_alone(monkeypatch, pr
     usd = ex.aggregate_exposure(["A", "B"], leg=ex.LEG_COMM,
                                 frames=_two_market_frames())
     assert agg.numeraire == ex.NUMERAIRE_GOLD
-    assert list(agg.frame["net_contracts"]) == list(usd.frame["net_contracts"])
+    assert (list(agg.members["A"]["net_contracts"])
+            == list(usd.members["A"]["net_contracts"]))
     assert agg.frame["notional_usd"].iloc[-1] == pytest.approx(
         usd.frame["notional_usd"].iloc[-1] / 2000.0)
 
