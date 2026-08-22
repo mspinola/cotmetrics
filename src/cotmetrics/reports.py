@@ -134,6 +134,15 @@ def get_matrix_data(asset_classes, lookback, target_date=None):
                 "Inst Sentiment": round(latest.get(const.LW_LRG_SENTIMENT, 0), 0) if pd.notna(latest.get(const.LW_LRG_SENTIMENT)) else None,
                 "OI Z": round(latest.get(oi_z_col, 0), 2) if pd.notna(latest.get(oi_z_col)) else None,
                 "Max Pain Pull": round(max_pain_pull, 2) if max_pain_pull is not None else None,
+                # No surface in this workspace renders this any more: both matrices
+                # dropped it as a chain-size measurement rather than a market one (see
+                # the group list in generate_matrix_html). It is still produced because
+                # it is free -- the same get_max_pain_for_symbol call above already
+                # returns it for Max Pain Pull -- and because this frame is part of a
+                # published package's surface, where dropping a column is a breaking
+                # change for a consumer we cannot see. The single-market views that DO
+                # draw it (cot-analyzer's signal cards and Max-Pain Premium chart) read
+                # options_data directly and do not come through here.
                 "Delta IV": delta_iv,
             }
             rows.append(row)
@@ -168,7 +177,19 @@ def generate_matrix_html(df: pd.DataFrame, report_date: str = None) -> str:
                            ["Comm Index Norm", "Sml Index Norm"]),
         ("Index Momentum", ["Comm Move", "Lrg Move", "Sml Move"]),
         ("Friction & Flow", ["WILLCO", "Inst Sentiment"]),
-        ("Open Interest",  ["OI Z", "Max Pain Pull", "Delta IV"]),
+        # Delta IV is deliberately absent, matching the dashboard's matrix, which
+        # dropped it in cot-analyzer #49. It is the gap in TOTAL CHAIN INTRINSIC VALUE
+        # between the current price and max pain, in millions, so it scales with the
+        # size of the option chain it was measured on: measured live it ran 0.0001
+        # (5-Year Note) to 8.5 (Gold), which ranks chains rather than markets. And the
+        # chain is never the futures market's, since every symbol resolves through
+        # options_data.ETF_PROXIES while only the STRIKES are scaled back to futures,
+        # leaving IntrinsicValue_M in the ETF chain's own dollars.
+        #
+        # Max Pain Pull is the same phenomenon as a percentage, which is comparable
+        # across markets, so nothing a reader can act on is lost. get_matrix_data still
+        # produces the column; see the note there.
+        ("Open Interest",  ["OI Z", "Max Pain Pull"]),
     ]
 
     # The group header already says which basis the block is, so the column headers
