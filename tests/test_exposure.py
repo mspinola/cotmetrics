@@ -210,3 +210,41 @@ def test_an_unknown_leg_is_refused(priced):
 
 def test_every_leg_has_a_label_and_a_column_set():
     assert set(ex.LEG_COLUMNS) == set(ex.LEG_LABELS)
+
+
+# ── the reference index and the extreme bands ─────────────────────────────────
+
+def test_the_composite_is_the_same_set_the_total_sums(monkeypatch):
+    """The printed reference this view came from puts the S&P 500 alone above a total
+    of four markets, so its reference is not its subject. Equal-weight of the set, each
+    member rebased to its own first observation, needs no defending."""
+    monkeypatch.setattr(ex, "point_values", lambda: {"A": 1.0, "B": 1.0})
+    prices = {"A": daily("2026-01-01", [100.0, 110.0, 120.0]),
+              "B": daily("2026-01-01", [50.0, 50.0, 100.0])}
+    monkeypatch.setattr(ex, "price_levels", lambda s, *a, **k: prices[s])
+    idx = ex.composite_price_index(
+        ["A", "B"], frames={"A": {"symbol": "A"}, "B": {"symbol": "B"}})
+    # A: 100 -> 110 -> 120.  B: 100 -> 100 -> 200.  Mean: 100, 105, 160.
+    assert list(idx) == [100.0, 105.0, 160.0]
+
+
+def test_a_member_with_no_multiplier_is_out_of_the_composite_too(monkeypatch):
+    """It is out of the total, so including it here would put a market in the reference
+    that is not in the subject, which is the defect this whole function exists to
+    avoid."""
+    monkeypatch.setattr(ex, "point_values", lambda: {"A": 1.0})
+    monkeypatch.setattr(ex, "price_levels",
+                        lambda s, *a, **k: daily("2026-01-01", [100.0, 200.0]))
+    idx = ex.composite_price_index(
+        ["A", "B"], frames={"A": {"symbol": "A"}, "B": {"symbol": "MFS"}})
+    assert list(idx) == [100.0, 200.0]
+
+
+def test_the_extreme_band_is_expanding_like_the_percentile():
+    """A static threshold from the whole sample marks 2010 extreme using 2026's
+    distribution."""
+    s = pd.Series([1.0, 2.0, 3.0, 100.0])
+    band = ex.expanding_quantile(s, 0.9, min_periods=2)
+    assert np.isnan(band.iloc[0])
+    assert band.iloc[-1] > band.iloc[1]
+    assert band.iloc[-1] < 100.0

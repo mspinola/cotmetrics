@@ -445,3 +445,76 @@ def expanding_pct_rank(series: pd.Series, min_periods: int = 104) -> pd.Series:
     ranks = s.expanding(min_periods=min_periods).apply(
         lambda w: (w <= w[-1]).mean() * 100.0, raw=True)
     return ranks
+
+
+def expanding_quantile(series: pd.Series, q: float,
+                       min_periods: int = 104) -> pd.Series:
+    """The q-th quantile of the history up to and including each week.
+
+    The band form of `expanding_pct_rank`, and the same look-ahead argument: a static
+    threshold drawn from the whole sample marks 2010 as extreme using 2026's
+    distribution. Drawn as an envelope this is what lets a level chart show whether
+    today is unusual, which is the one thing a chart about crowding must not leave the
+    reader to eyeball.
+    """
+    s = pd.to_numeric(series, errors="coerce")
+    return s.expanding(min_periods=min_periods).quantile(q)
+
+
+def composite_price_index(names, *, base: float = 100.0,
+                          max_staleness_days: int = DEFAULT_MAX_STALENESS_DAYS,
+                          dates=None, frames: dict = None) -> pd.Series:
+    """An equal-weight price index of the SAME set the aggregate sums, rebased to `base`.
+
+    A price panel above an aggregate has to be the thing the aggregate is exposed to.
+    The printed reference this view was built from puts the S&P 500 alone above a total
+    that aggregates ES, NQ, YM and RTY, so its reference is not its subject and the two
+    lines come apart whenever the four disagree.
+
+    Equal-weight of each member rebased to its own first observation, which is the
+    weighting that needs no defending: it is the set, each member counted once. It is
+    NOT the capitalisation-weighted index anyone quotes, and the axis says so by
+    carrying an index level rather than a price.
+
+    Prices are ``unadj`` levels for the same reason notional uses them, but with the
+    opposite consequence worth knowing: an unadjusted continuous series steps at every
+    roll, so this index inherits those steps. It is a reference for shape and direction
+    over years, not a tradeable return series, and nothing here computes a return from
+    it.
+    """
+    frames = frames or {}
+    series = {}
+    for name in names:
+        symbol = (frames.get(name) or {}).get("symbol")
+        if symbol is None:
+            from cotmetrics.indexer import get_indexer
+            instrument = get_indexer().get_instrument_from_name(name)
+            if instrument is None:
+                continue
+            symbol = instrument.symbol
+        if symbol not in point_values():
+            continue
+        px = price_levels(symbol)
+        if px.empty:
+            continue
+        series[name] = px
+
+    if not series:
+        return pd.Series(dtype="float64", name="composite")
+
+    if dates is None:
+        frame = pd.DataFrame(series).sort_index()
+    else:
+        frame = pd.DataFrame(
+            {n: _asof(px, pd.DatetimeIndex(dates), max_staleness_days).to_numpy()
+             for n, px in series.items()},
+            index=pd.DatetimeIndex(dates))
+
+    complete = frame.notna().all(axis=1)
+    frame = frame[complete]
+    if frame.empty:
+        return pd.Series(dtype="float64", name="composite")
+    rebased = frame.divide(frame.iloc[0], axis=1) * base
+    out = rebased.mean(axis=1)
+    out.name = "composite"
+    return out
