@@ -573,3 +573,75 @@ def contributions(members: dict, column: str, when=None) -> pd.Series:
         return pd.Series(dtype="float64")
     return pd.Series(out).reindex(
         sorted(out, key=lambda n: -abs(out[n])))
+
+
+#: The columns a contribution table carries, in both units, so a reader can see the
+#: number the page is NOT currently drawing without changing a control. The two are not
+#: substitutes: measured on the Energies complex their percentiles correlate 0.802 with
+#: a median gap of 9.6 percentile points and a worst gap of 69.
+TABLE_COLUMNS = ("notional_usd", "risk_usd")
+
+
+def rank_column(column: str) -> str:
+    """The percentile column that goes with a value column.
+
+    One function because `AggregateExposure.frame` and `contribution_table` both carry
+    these and must name them the same way. They did not, for one commit: the frame said
+    `notional_pct_rank` while the table said `notional_usd_pct_rank`, which is the kind
+    of near-miss a caller resolves by writing whichever one their fixture happened to
+    have.
+    """
+    return column.replace("_usd", "") + "_pct_rank"
+
+
+def contribution_table(members: dict, *, when=None,
+                       min_rank_periods: int = 104) -> pd.DataFrame:
+    """One week of every member, in both units, each ranked against ITS OWN history.
+
+    The per-market answer to the question the aggregate's percentile answers for the
+    set. A market at its own 99th percentile inside a total sitting at its 40th is the
+    kind of thing a sum cannot show and a reader would want to know, and it is invisible
+    in a contribution figure that plots levels alone.
+
+    Ranked per member rather than against the total, for the same reason the companion
+    panel ranks each leg against itself: they are different quantities on different
+    scales, and ranking them against the total would put them back on its axis by
+    another route.
+
+    Rows are ordered by absolute contribution in the FIRST unit that has values, so the
+    market driving the total leads. Members with no value that week are dropped rather
+    than carried as blanks: the table is a decomposition of a number, and a row that
+    contributed nothing to it is not part of that decomposition.
+    """
+    rows = {}
+    for name, frame in (members or {}).items():
+        row = {}
+        for column in TABLE_COLUMNS:
+            if column not in frame.columns:
+                continue
+            series = pd.to_numeric(frame[column], errors="coerce")
+            ranks = expanding_pct_rank(series, min_rank_periods)
+            stamp = when if (when is not None and when in series.index) else None
+            if stamp is None:
+                valid = series.dropna()
+                if valid.empty:
+                    continue
+                stamp = valid.index[-1]
+            value = series.get(stamp)
+            if value is None or value != value:
+                continue
+            row[column] = float(value)
+            rank = ranks.get(stamp)
+            row[rank_column(column)] = (float(rank) if rank is not None
+                                        and rank == rank else float("nan"))
+        if row:
+            rows[name] = row
+
+    if not rows:
+        return pd.DataFrame(columns=[c for col in TABLE_COLUMNS
+                                     for c in (col, rank_column(col))])
+    table = pd.DataFrame(rows).T
+    lead = next((c for c in TABLE_COLUMNS if c in table.columns), None)
+    if lead is not None:
+        table = table.reindex(table[lead].abs().sort_values(ascending=False).index)
+    return table

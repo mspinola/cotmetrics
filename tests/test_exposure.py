@@ -320,3 +320,64 @@ def test_contributions_can_be_asked_for_an_earlier_week(priced):
 
 def test_contributions_of_nothing_is_empty_rather_than_an_error():
     assert ex.contributions({}, "notional_usd").empty
+
+
+# ── the contribution table ────────────────────────────────────────────────────
+
+def test_the_table_carries_both_units_whichever_one_is_drawn(priced):
+    """They are not substitutes: on the Energies complex their percentiles correlate
+    0.802, with a median gap of 9.6 percentile points and a worst gap of 69."""
+    agg = ex.aggregate_exposure(["A", "B"], leg=ex.LEG_COMM, frames=_two_market_frames())
+    table = ex.contribution_table(agg.members, min_rank_periods=1)
+    assert set(table.columns) == {"notional_usd", "risk_usd",
+                                  "notional_pct_rank", "risk_pct_rank"}
+
+
+def test_each_member_is_ranked_against_its_own_history(priced):
+    """A market at its own 99th percentile inside a total sitting at its 40th is the
+    kind of thing a sum cannot show."""
+    frames = {
+        "steady": {"frame": weekly(["2026-01-06", "2026-01-13", "2026-01-20"],
+                                   comm=[-100.0, -100.0, -100.0]), "symbol": "TEST"},
+        "extreme": {"frame": weekly(["2026-01-06", "2026-01-13", "2026-01-20"],
+                                    comm=[-10.0, -50.0, -900.0]), "symbol": "TEST"},
+    }
+    agg = ex.aggregate_exposure(["steady", "extreme"], leg=ex.LEG_COMM, frames=frames)
+    table = ex.contribution_table(agg.members, min_rank_periods=1)
+    # "extreme" is at its own most negative week, so it ranks at the BOTTOM of its own
+    # history; "steady" has never moved, so every week ties and it ranks at the top.
+    assert table.loc["extreme", "notional_pct_rank"] == pytest.approx(100 / 3)
+    assert table.loc["steady", "notional_pct_rank"] == pytest.approx(100.0)
+
+
+def test_the_market_driving_the_total_leads_the_table(priced):
+    agg = ex.aggregate_exposure(["A", "B"], leg=ex.LEG_COMM, frames=_two_market_frames())
+    table = ex.contribution_table(agg.members, min_rank_periods=1)
+    assert list(table.index) == ["B", "A"]
+
+
+def test_the_table_can_be_asked_for_an_earlier_week(priced):
+    agg = ex.aggregate_exposure(["A", "B"], leg=ex.LEG_COMM, frames=_two_market_frames())
+    table = ex.contribution_table(agg.members, when=pd.Timestamp("2026-01-06"),
+                                  min_rank_periods=1)
+    assert table.loc["A", "notional_usd"] == -100 * 50 * 100
+
+
+def test_a_table_of_nothing_still_has_its_columns():
+    """So a caller can build column definitions from it without branching."""
+    table = ex.contribution_table({})
+    assert table.empty
+    assert "risk_usd" in table.columns
+    assert "risk_pct_rank" in table.columns
+
+
+def test_the_table_names_its_percentile_columns_the_way_the_frame_does(priced):
+    """They did not, for one commit: the frame said `notional_pct_rank` while the table
+    said `notional_usd_pct_rank`, which is the kind of near-miss a caller resolves by
+    writing whichever one their fixture happened to have."""
+    agg = ex.aggregate_exposure(["A", "B"], leg=ex.LEG_COMM, frames=_two_market_frames())
+    table = ex.contribution_table(agg.members, min_rank_periods=1)
+    for column in ("notional_pct_rank", "risk_pct_rank"):
+        assert column in agg.frame.columns
+        assert column in table.columns
+    assert ex.rank_column("risk_usd") == "risk_pct_rank"
