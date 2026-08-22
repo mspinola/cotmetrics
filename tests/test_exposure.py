@@ -381,3 +381,80 @@ def test_the_table_names_its_percentile_columns_the_way_the_frame_does(priced):
         assert column in agg.frame.columns
         assert column in table.columns
     assert ex.rank_column("risk_usd") == "risk_pct_rank"
+
+
+# ── the numeraire ─────────────────────────────────────────────────────────────
+
+def test_gold_divides_the_dollars_and_leaves_the_contracts_alone(monkeypatch, priced):
+    """Contracts are contracts under any numeraire."""
+    monkeypatch.setattr(ex, "price_levels",
+                        lambda s, *a, **k: daily("2026-01-01", [100.0] * 40)
+                        if s != "GC" else daily("2026-01-01", [2000.0] * 40))
+    agg = ex.aggregate_exposure(["A", "B"], leg=ex.LEG_COMM,
+                                numeraire=ex.NUMERAIRE_GOLD,
+                                frames=_two_market_frames())
+    usd = ex.aggregate_exposure(["A", "B"], leg=ex.LEG_COMM,
+                                frames=_two_market_frames())
+    assert agg.numeraire == ex.NUMERAIRE_GOLD
+    assert list(agg.frame["net_contracts"]) == list(usd.frame["net_contracts"])
+    assert agg.frame["notional_usd"].iloc[-1] == pytest.approx(
+        usd.frame["notional_usd"].iloc[-1] / 2000.0)
+
+
+def test_the_numeraire_applies_before_the_percentile_is_computed(monkeypatch):
+    """Applying it later would leave a percentile computed on a dollar series describing
+    a gold one, which is the kind of mismatch nothing on screen would reveal. Against the
+    real store the two genuinely differ: US equity speculators sat at the 98th percentile
+    in USD and the 67th in ounces of gold on the same week."""
+    monkeypatch.setattr(ex, "point_values", lambda: {"TEST": 50.0})
+    monkeypatch.setattr(ex, "sigma_series", lambda s, **k: daily("2026-01-01", [0.02] * 40))
+    # Flat position, rising gold: in dollars every week ties, in gold each is lower than
+    # the last, so the last week ranks top in one and bottom in the other.
+    monkeypatch.setattr(ex, "price_levels",
+                        lambda s, *a, **k: daily("2026-01-01", [100.0] * 40)
+                        if s != "GC" else daily("2026-01-01", list(range(100, 140))))
+    frame = weekly(["2026-01-06", "2026-01-13", "2026-01-20"], comm=[100.0] * 3)
+    frames = {"A": {"frame": frame, "symbol": "TEST"}}
+    in_usd = ex.aggregate_exposure(["A"], leg=ex.LEG_COMM, min_rank_periods=1,
+                                   frames=frames)
+    in_gold = ex.aggregate_exposure(["A"], leg=ex.LEG_COMM, min_rank_periods=1,
+                                    numeraire=ex.NUMERAIRE_GOLD, frames=frames)
+    assert in_usd.frame["notional_pct_rank"].iloc[-1] == pytest.approx(100.0)
+    assert in_gold.frame["notional_pct_rank"].iloc[-1] < 100.0
+
+
+def test_the_members_are_deflated_too_so_they_still_sum_to_the_total(monkeypatch, priced):
+    monkeypatch.setattr(ex, "price_levels",
+                        lambda s, *a, **k: daily("2026-01-01", [100.0] * 40)
+                        if s != "GC" else daily("2026-01-01", [2000.0] * 40))
+    agg = ex.aggregate_exposure(["A", "B"], leg=ex.LEG_COMM,
+                                numeraire=ex.NUMERAIRE_GOLD,
+                                frames=_two_market_frames())
+    stacked = sum(m["notional_usd"] for m in agg.members.values())
+    assert list(stacked) == list(agg.frame["notional_usd"])
+
+
+def test_dollars_need_no_divisor():
+    assert ex.numeraire_series(ex.NUMERAIRE_USD,
+                               pd.date_range("2026-01-06", periods=3)) is None
+
+
+def test_an_unknown_numeraire_is_refused():
+    with pytest.raises(ex.ExposureError, match="unknown numeraire"):
+        ex.numeraire_series("silver", pd.date_range("2026-01-06", periods=3))
+
+
+def test_a_non_positive_gold_price_is_masked_rather_than_divided_by(monkeypatch):
+    """Not a market event, a broken read. Dividing by it would produce an infinity that
+    looks like a record position."""
+    monkeypatch.setattr(ex, "price_levels",
+                        lambda s, *a, **k: daily("2026-01-01", [2000.0, 0.0, 2000.0]))
+    got = ex.numeraire_series(ex.NUMERAIRE_GOLD,
+                              pd.DatetimeIndex(["2026-01-01", "2026-01-02",
+                                                "2026-01-03"]))
+    assert got.iloc[0] == 2000.0
+    assert pd.isna(got.iloc[1])
+
+
+def test_both_numeraires_are_labelled():
+    assert set(ex.NUMERAIRE_LABELS) == {ex.NUMERAIRE_USD, ex.NUMERAIRE_GOLD}

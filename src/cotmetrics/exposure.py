@@ -95,6 +95,66 @@ MAX_NONPOSITIVE_RATE = 0.01
 #: silently value at last month's price.
 DEFAULT_MAX_STALENESS_DAYS = 5
 
+#: What the dollars are measured against.
+#:
+#: NUMERAIRE_GOLD divides every figure by the spot-ish gold price, so the series is in
+#: TROY OUNCES of gold rather than dollars. It exists because the page's central hazard
+#: is that dollar figures carry the price level, so a long history drifts upward whatever
+#: the positioning did, and gold is the deflator this stack already has: daily, back to
+#: 1978, in the same store, needing no new source and no inflation series.
+#:
+#: It works, measured on the real store as the ratio of the last third's median absolute
+#: weekly figure to the first third's:
+#:
+#:     Equities   4.2x in USD  ->  1.3x in gold
+#:     Metals    30.6x in USD  ->  6.2x in gold
+#:     Energies   2.8x in USD  ->  1.3x in gold
+#:     Grains     4.3x in USD  ->  0.9x in gold
+#:
+#: Two things a reader has to know, both measured rather than assumed.
+#:
+#: Gold is not a stable ruler. It is an asset with its own 22x move since 1978, so a
+#: change in the gold-denominated series can be gold moving rather than positioning.
+#: That risk is real and turns out to be small week to week: the USD and gold series
+#: disagree on the SIGN of a weekly change 1.7% of weeks on Equities, 2.5% on Grains and
+#: 4.0% on Metals. Over years it is exactly the point, since removing gold's trend is
+#: what the deflation is for.
+#:
+#: And gold measured in gold is circular, exactly and not approximately. GC's notional
+#: divided by the gold price is `contracts x 100` to a difference of 0.0, because the
+#: multiplier IS 100 troy ounces. That is not a defect: ounces of gold controlled is the
+#: cleanest statement of a gold position there is. It does mean a Metals total in gold
+#: terms carries one self-referential term, and anything reading it should know which.
+NUMERAIRE_USD = "usd"
+NUMERAIRE_GOLD = "gold"
+
+#: The gold contract, whose unadjusted close is USD per troy ounce.
+GOLD_SYMBOL = "GC"
+
+NUMERAIRE_LABELS = {NUMERAIRE_USD: "USD", NUMERAIRE_GOLD: "oz gold"}
+
+
+def numeraire_series(numeraire, dates,
+                     max_staleness_days: int = DEFAULT_MAX_STALENESS_DAYS):
+    """What to divide the dollars by, or None for dollars.
+
+    Carried onto the weekly COT dates the same way a price is, last known value within
+    the staleness bound, so a holiday Tuesday does not lose a week and a gap does not
+    silently value one at last month's gold.
+    """
+    if numeraire == NUMERAIRE_USD or not len(dates):
+        return None
+    if numeraire != NUMERAIRE_GOLD:
+        raise ExposureError(
+            f"unknown numeraire {numeraire!r}, expected one of "
+            f"{(NUMERAIRE_USD, NUMERAIRE_GOLD)}")
+    price = _asof(price_levels(GOLD_SYMBOL), pd.DatetimeIndex(dates),
+                  max_staleness_days)
+    # A zero or negative gold price is not a market event, it is a broken read, and
+    # dividing by it would produce an infinity that looks like a record position.
+    return price.where(price > 0)
+
+
 #: The legs, and what "spec" means here.
 #:
 #: In the Legacy report the three legs sum to zero, so the mirror of Commercial net is
@@ -345,6 +405,11 @@ class AggregateExposure(NamedTuple):
     #: Weeks inside the union that at least one included market could not price, and
     #: which are therefore absent from `frame`.
     weeks_lost: int
+    #: What the dollar columns are actually denominated in. `frame` and `members` keep
+    #: their `_usd` column names under either numeraire, because renaming them per call
+    #: would make every downstream lookup conditional; this field is how a caller knows
+    #: what the numbers mean and how to label an axis.
+    numeraire: str = NUMERAIRE_USD
     #: name -> that market's own exposure frame, restricted to the weeks the total
     #: covers, so the members sum to `frame` exactly and column for column.
     #:
@@ -361,6 +426,7 @@ def aggregate_exposure(names, *, leg: str = LEG_COMM, lookback: str = "Custom",
                        min_periods: int = DEFAULT_MIN_PERIODS,
                        max_staleness_days: int = DEFAULT_MAX_STALENESS_DAYS,
                        min_rank_periods: int = 104,
+                       numeraire: str = NUMERAIRE_USD,
                        frames: dict = None) -> AggregateExposure:
     """Sum a set of markets into one weekly series, and say what that cost.
 
@@ -402,10 +468,25 @@ def aggregate_exposure(names, *, leg: str = LEG_COMM, lookback: str = "Custom",
     empty = pd.DataFrame(columns=["net_contracts", "notional_usd", "risk_usd",
                                   "n_markets", "notional_pct_rank", "risk_pct_rank"])
     if not per_market:
-        return AggregateExposure(empty, dropped, {}, {}, 0, {})
+        return AggregateExposure(empty, dropped, {}, {}, 0, numeraire, {})
 
     def _stack(column):
         return pd.DataFrame({n: ex[column] for n, ex in per_market.items()})
+
+    # The numeraire divides BEFORE anything is summed or ranked, so the total, its
+    # percentile, its band and every member all speak the same units. Applying it later
+    # would leave a percentile computed on a dollar series describing a gold one, which
+    # is the kind of mismatch nothing on screen would reveal.
+    #
+    # Applied to the VALUE columns only. Contracts are contracts under any numeraire.
+    divisor = numeraire_series(numeraire, _stack("notional_usd").index,
+                               max_staleness_days)
+    if divisor is not None:
+        per_market = {
+            name: ex.assign(**{c: ex[c] / divisor.reindex(ex.index)
+                               for c in ("notional_usd", "risk_usd")})
+            for name, ex in per_market.items()
+        }
 
     notional, risk = _stack("notional_usd"), _stack("risk_usd")
     priced = notional.notna() & risk.notna()
@@ -438,7 +519,8 @@ def aggregate_exposure(names, *, leg: str = LEG_COMM, lookback: str = "Custom",
     weeks_lost = int((priced.any(axis=1) & ~complete).sum())
     members = {n: ex[complete.reindex(ex.index, fill_value=False)]
                for n, ex in per_market.items()}
-    return AggregateExposure(out, dropped, coverage, bounded_by, weeks_lost, members)
+    return AggregateExposure(out, dropped, coverage, bounded_by, weeks_lost,
+                             numeraire, members)
 
 
 def expanding_pct_rank(series: pd.Series, min_periods: int = 104) -> pd.Series:
