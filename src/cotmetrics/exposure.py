@@ -398,8 +398,10 @@ class AggregateExposure(NamedTuple):
     in 2026, looks exactly like one that did neither.
     """
 
-    #: The weekly total: net_contracts, notional_usd, risk_usd, n_markets, and the two
-    #: expanding percentile columns.
+    #: The weekly total: notional_usd, risk_usd, n_markets, and the two expanding
+    #: percentile columns. There is deliberately no contracts column; see
+    #: `aggregate_exposure` for why the one unit that does not add across markets is
+    #: absent from the frame whose whole job is adding.
     frame: pd.DataFrame
     #: name -> why it is not in the total at all.
     dropped: dict
@@ -455,6 +457,16 @@ def aggregate_exposure(names, *, leg: str = LEG_COMM, lookback: str = "Custom",
     the future. It is the answer to "is this a lot", which no level in this frame gives
     on its own, because both notional and dollar risk carry the price level and so drift
     upward over a long history whatever the positioning did.
+
+    **The total carries no contracts column, only dollars.** Contracts do not add across
+    markets, which is the entire reason this module converts to dollars: summing ES
+    contracts and corn contracts produces a number in no unit at all. The dangerous
+    place for such a number is exactly here, in the same frame beside two columns that
+    ARE summable and named the same way, where it reads as a third quantity of the same
+    kind and would be plotted as one. It was carried for several commits and nothing
+    read it, so it is dropped rather than qualified. `net_contracts` stays on
+    `market_exposure`, and so on every frame in `members`, which is where one market's
+    contract count means something.
     """
     frames = frames or {}
     per_market, dropped = {}, {}
@@ -473,8 +485,8 @@ def aggregate_exposure(names, *, leg: str = LEG_COMM, lookback: str = "Custom",
             continue
         per_market[name] = ex
 
-    empty = pd.DataFrame(columns=["net_contracts", "notional_usd", "risk_usd",
-                                  "n_markets", "notional_pct_rank", "risk_pct_rank"])
+    empty = pd.DataFrame(columns=["notional_usd", "risk_usd", "n_markets",
+                                  "notional_pct_rank", "risk_pct_rank"])
     if not per_market:
         return AggregateExposure(empty, dropped, {}, {}, 0, numeraire, {})
 
@@ -503,7 +515,6 @@ def aggregate_exposure(names, *, leg: str = LEG_COMM, lookback: str = "Custom",
 
     complete = priced.all(axis=1)
     out = pd.DataFrame({
-        "net_contracts": _stack("net_contracts")[complete].sum(axis=1),
         "notional_usd": notional[complete].sum(axis=1),
         "risk_usd": risk[complete].sum(axis=1),
     })
