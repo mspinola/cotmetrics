@@ -345,6 +345,15 @@ class AggregateExposure(NamedTuple):
     #: Weeks inside the union that at least one included market could not price, and
     #: which are therefore absent from `frame`.
     weeks_lost: int
+    #: name -> that market's own exposure frame, restricted to the weeks the total
+    #: covers, so the members sum to `frame` exactly and column for column.
+    #:
+    #: Returned rather than discarded because a total conceals its own composition, and
+    #: the concealment is not marginal. On the equity complex at the time of writing one
+    #: market is 59.5% of the gross speculator total and another leans the other way, so
+    #: "equity speculators are crowded long" is substantially "the S&P is". A reader
+    #: cannot recover any of that from the sum.
+    members: dict = {}
 
 
 def aggregate_exposure(names, *, leg: str = LEG_COMM, lookback: str = "Custom",
@@ -393,7 +402,7 @@ def aggregate_exposure(names, *, leg: str = LEG_COMM, lookback: str = "Custom",
     empty = pd.DataFrame(columns=["net_contracts", "notional_usd", "risk_usd",
                                   "n_markets", "notional_pct_rank", "risk_pct_rank"])
     if not per_market:
-        return AggregateExposure(empty, dropped, {}, {}, 0)
+        return AggregateExposure(empty, dropped, {}, {}, 0, {})
 
     def _stack(column):
         return pd.DataFrame({n: ex[column] for n, ex in per_market.items()})
@@ -427,7 +436,9 @@ def aggregate_exposure(names, *, leg: str = LEG_COMM, lookback: str = "Custom",
             bounded_by["end"] = next(n for n, c in coverage.items()
                                      if c[1] == earliest_end)
     weeks_lost = int((priced.any(axis=1) & ~complete).sum())
-    return AggregateExposure(out, dropped, coverage, bounded_by, weeks_lost)
+    members = {n: ex[complete.reindex(ex.index, fill_value=False)]
+               for n, ex in per_market.items()}
+    return AggregateExposure(out, dropped, coverage, bounded_by, weeks_lost, members)
 
 
 def expanding_pct_rank(series: pd.Series, min_periods: int = 104) -> pd.Series:
@@ -518,3 +529,47 @@ def composite_price_index(names, *, base: float = 100.0,
     out = rebased.mean(axis=1)
     out.name = "composite"
     return out
+
+
+def agreement(values) -> float:
+    """`|sum| / sum|.|` over a set of signed contributions, 0 to 1.
+
+    One number for whether a total is a crowd or an argument. At 1.00 every contributor
+    points the same way and the total is the whole story; at 0.50 half the gross size is
+    cancelling out and the total is a residual between markets doing different things.
+
+    Worth having beside any aggregate on this page because it moves a lot and moves
+    independently of the level. Measured on one week of the equity complex: 1.00 for
+    Small Traders, who were unanimous, and 0.63 for Large Speculators, who were split,
+    on the same markets on the same day.
+
+    Returns NaN on an empty set or an all-zero one, where the ratio is undefined rather
+    than perfect.
+    """
+    vals = [float(v) for v in values if v == v]
+    gross = sum(abs(v) for v in vals)
+    if not vals or gross == 0:
+        return float("nan")
+    return abs(sum(vals)) / gross
+
+
+def contributions(members: dict, column: str, when=None) -> pd.Series:
+    """Each member's value for one week, largest absolute contribution first.
+
+    `when` defaults to the last week any member has. Sorted by magnitude rather than by
+    name because the question this answers is "what is driving the total", and the
+    answer is usually the first row.
+    """
+    out = {}
+    for name, frame in (members or {}).items():
+        series = frame[column].dropna() if column in frame.columns else pd.Series(dtype=float)
+        if series.empty:
+            continue
+        if when is None:
+            out[name] = float(series.iloc[-1])
+        elif when in series.index:
+            out[name] = float(series.loc[when])
+    if not out:
+        return pd.Series(dtype="float64")
+    return pd.Series(out).reindex(
+        sorted(out, key=lambda n: -abs(out[n])))

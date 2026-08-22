@@ -248,3 +248,75 @@ def test_the_extreme_band_is_expanding_like_the_percentile():
     assert np.isnan(band.iloc[0])
     assert band.iloc[-1] > band.iloc[1]
     assert band.iloc[-1] < 100.0
+
+
+# ── the total carries its own composition ─────────────────────────────────────
+
+def test_the_members_sum_to_the_total_exactly(priced):
+    """Returned rather than discarded because a total conceals its composition, and on
+    the real equity complex one market is 59.5% of the gross speculator total."""
+    agg = ex.aggregate_exposure(["A", "B"], leg=ex.LEG_COMM, frames=_two_market_frames())
+    stacked = sum(m["notional_usd"] for m in agg.members.values())
+    assert list(stacked) == list(agg.frame["notional_usd"])
+
+
+def test_members_are_trimmed_to_the_weeks_the_total_covers(priced):
+    """Otherwise a member would carry weeks the total does not, and the two would stop
+    adding up exactly where a reader was checking them against each other."""
+    frames = _two_market_frames()
+    frames["B"]["frame"] = weekly(["2026-01-13"], comm=[-400.0])
+    agg = ex.aggregate_exposure(["A", "B"], leg=ex.LEG_COMM, frames=frames)
+    assert list(agg.members["A"].index) == list(agg.frame.index)
+    assert len(agg.members["A"]) == 1
+
+
+def test_a_dropped_member_is_not_in_the_membership(monkeypatch):
+    monkeypatch.setattr(ex, "point_values", lambda: {"TEST": 50.0})
+    monkeypatch.setattr(ex, "price_levels",
+                        lambda s, *a, **k: daily("2026-01-01", [100.0] * 40))
+    monkeypatch.setattr(ex, "sigma_series", lambda s, **k: daily("2026-01-01", [0.02] * 40))
+    frames = _two_market_frames()
+    frames["B"]["symbol"] = "NOPE"
+    agg = ex.aggregate_exposure(["A", "B"], leg=ex.LEG_COMM, frames=frames)
+    assert set(agg.members) == {"A"}
+
+
+# ── agreement ─────────────────────────────────────────────────────────────────
+
+def test_agreement_is_one_when_every_contributor_points_the_same_way():
+    assert ex.agreement([3.0, 1.0, 6.0]) == pytest.approx(1.0)
+    assert ex.agreement([-3.0, -1.0, -6.0]) == pytest.approx(1.0)
+
+
+def test_agreement_falls_as_contributors_cancel():
+    """The number that says whether a total is a crowd or an argument. Measured on one
+    real week: 1.00 for Small Traders, unanimous, and 0.63 for Large Speculators, split,
+    on the same markets on the same day."""
+    assert ex.agreement([10.0, -4.0]) == pytest.approx(6 / 14)
+    assert ex.agreement([5.0, -5.0]) == pytest.approx(0.0)
+
+
+def test_agreement_is_undefined_rather_than_perfect_on_nothing():
+    import math
+    assert math.isnan(ex.agreement([]))
+    assert math.isnan(ex.agreement([0.0, 0.0]))
+
+
+# ── contributions ─────────────────────────────────────────────────────────────
+
+def test_contributions_lead_with_what_is_driving_the_total(priced):
+    agg = ex.aggregate_exposure(["A", "B"], leg=ex.LEG_COMM, frames=_two_market_frames())
+    got = ex.contributions(agg.members, "notional_usd")
+    # B is -400 contracts against A's -200 in the last week, so B leads on magnitude.
+    assert list(got.index) == ["B", "A"]
+    assert got.iloc[0] == -400 * 50 * 100
+
+
+def test_contributions_can_be_asked_for_an_earlier_week(priced):
+    agg = ex.aggregate_exposure(["A", "B"], leg=ex.LEG_COMM, frames=_two_market_frames())
+    got = ex.contributions(agg.members, "notional_usd", when=pd.Timestamp("2026-01-06"))
+    assert got["A"] == -100 * 50 * 100
+
+
+def test_contributions_of_nothing_is_empty_rather_than_an_error():
+    assert ex.contributions({}, "notional_usd").empty
