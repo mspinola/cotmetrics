@@ -39,6 +39,15 @@ def get_matrix_data(asset_classes, lookback, target_date=None):
     norm_idx_col = idx_col + const.NORMALIZED
     norm_sml_idx_col = sml_idx_col + const.NORMALIZED
 
+    # Index momentum, on both bases, for the same reason the index itself is carried on
+    # both: it is a point change OF the index, so a raw move beside a normalized level
+    # describes two different series under one name. The generic COMM_MOMENTUM alias
+    # below follows whatever basis get_symbols_data was called with, which is the raw
+    # default here, so a consumer pairing it with "Comm Index Norm" would be mixing
+    # bases. Naming the normalized twin explicitly is what stops that, exactly as
+    # norm_idx_col does one line above.
+    norm_mom_col = const.COMM + lookback_str + const.MOMENTUM + const.NORMALIZED
+
     z_col = const.COMM + lookback_str + const.ZSCORE
 
     const.WILLCO + lookback_str
@@ -117,6 +126,7 @@ def get_matrix_data(asset_classes, lookback, target_date=None):
                 "Comm Index Norm": round(latest.get(norm_idx_col, 0), 0) if pd.notna(latest.get(norm_idx_col)) else None,
                 "Sml Index Norm": round(latest.get(norm_sml_idx_col, 0), 0) if pd.notna(latest.get(norm_sml_idx_col)) else None,
                 "Comm Move": round(latest.get(const.COMM_MOMENTUM, 0), 0) if pd.notna(latest.get(const.COMM_MOMENTUM)) else None,
+                "Comm Move Norm": round(latest.get(norm_mom_col, 0), 0) if pd.notna(latest.get(norm_mom_col)) else None,
                 "Lrg Move": round(latest.get(const.LRG_MOMENTUM, 0), 0) if pd.notna(latest.get(const.LRG_MOMENTUM)) else None,
                 "Sml Move": round(latest.get(const.SML_MOMENTUM, 0), 0) if pd.notna(latest.get(const.SML_MOMENTUM)) else None,
                 "Comm Z": round(latest.get(z_col, 0), 2) if pd.notna(latest.get(z_col)) else None,
