@@ -97,14 +97,22 @@ DEFAULT_MAX_STALENESS_DAYS = 5
 
 #: What the dollars are measured against.
 #:
-#: NUMERAIRE_GOLD divides every figure by the spot-ish gold price, so the series is in
-#: TROY OUNCES of gold rather than dollars. It exists because the page's central hazard
-#: is that dollar figures carry the price level, so a long history drifts upward whatever
-#: the positioning did, and gold is the deflator this stack already has: daily, back to
-#: 1978, in the same store, needing no new source and no inflation series.
+#: NUMERAIRE_GOLD divides every figure by the gold price, so the series is in TROY
+#: OUNCES rather than dollars. It measures positioning against HARD MONEY rather than
+#: against a currency, which is Larry Williams' WillVal applied to a book, and gold is
+#: the benchmark this stack already carries: daily, back to 1978, in the same store,
+#: needing no new source.
 #:
-#: It works, measured on the real store as the ratio of the last third's median absolute
-#: weekly figure to the first third's:
+#: It is a benchmark and not a ruler. Gold is a second asset with its own trend, 6.6% a
+#: year since 1978 at 19% volatility and a 63% fall between 1980 and 1999, so both ends
+#: of the comparison move. This is deliberately NOT an inflation adjustment and nothing
+#: here claims it is one: gold and consumer prices come apart for decades at a time, and
+#: an inflation framing would invite reading a rise as real growth.
+#:
+#: A side effect worth knowing, since it is why the view is legible at all: measuring
+#: against gold happens to flatten these series a great deal, as the ratio of the last
+#: third's median absolute weekly figure to the first third's shows. That is a property
+#: of gold's last twenty-five years rather than a guarantee.
 #:
 #:     Equities   4.2x in USD  ->  1.3x in gold
 #:     Metals    30.6x in USD  ->  6.2x in gold
