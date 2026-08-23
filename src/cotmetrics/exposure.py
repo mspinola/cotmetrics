@@ -503,6 +503,7 @@ def aggregate_exposure(names, *, leg: str = LEG_COMM, lookback: str = "Custom",
                        min_periods: int = DEFAULT_MIN_PERIODS,
                        max_staleness_days: int = DEFAULT_MAX_STALENESS_DAYS,
                        min_rank_periods: int = 104,
+                       rank_window: int = None,
                        numeraire: str = NUMERAIRE_USD,
                        frames: dict = None) -> AggregateExposure:
     """Sum a set of markets into one weekly series, and say what that cost.
@@ -610,8 +611,13 @@ def aggregate_exposure(names, *, leg: str = LEG_COMM, lookback: str = "Custom",
         # zero would claim the set holds something with no volatility.
         / weight.where(weight > 0)
     )
-    out["notional_pct_rank"] = expanding_pct_rank(out["notional_usd"], min_rank_periods)
-    out["risk_pct_rank"] = expanding_pct_rank(out["risk_usd"], min_rank_periods)
+    # `rank_window=None` keeps the expanding form, which is the default and the one
+    # that can say "the most ever". A window answers "the most lately" instead; see
+    # `windowed_pct_rank` for what that costs.
+    out["notional_pct_rank"] = windowed_pct_rank(out["notional_usd"], rank_window,
+                                                 min_rank_periods)
+    out["risk_pct_rank"] = windowed_pct_rank(out["risk_usd"], rank_window,
+                                             min_rank_periods)
 
     # Which market sets each end, and only where it costs weeks the others could have
     # filled. A market that merely starts latest is named at "start" only if some other
@@ -648,6 +654,51 @@ def expanding_pct_rank(series: pd.Series, min_periods: int = 104) -> pd.Series:
     ranks = s.expanding(min_periods=min_periods).apply(
         lambda w: (w <= w[-1]).mean() * 100.0, raw=True)
     return ranks
+
+
+def windowed_pct_rank(series: pd.Series, window: int = None,
+                      min_periods: int = 104) -> pd.Series:
+    """`expanding_pct_rank`, or the same thing over a TRAILING WINDOW of `window` weeks.
+
+    `window=None` is the expanding form and is the default everywhere, because the two
+    answer different questions and only one of them can say "the most ever".
+
+        expanding    where does this week sit in EVERY week up to now
+        windowed     where does this week sit in the last N weeks
+
+    A window renormalises every week, so a market that has been heavily short all year
+    reads near 100 on its least-short week. That is the right answer to "extreme lately"
+    and the wrong one to "extreme ever", and the difference is not small: measured
+    across 46 markets on a 52-week window, a reading above 50 is actually a net SHORT
+    position 12.5% of the time at the median market and 62% of the time on the Russell,
+    against 0.2% on the expanding form.
+
+    Neither carries look-ahead. A trailing window ends at the week it describes.
+
+    `min_periods` is clamped to the window, since a window cannot wait for more
+    observations than it holds; a caller asking for a 26-week window and two years of
+    minimum history means the first, and getting NaN forever would be the other reading.
+    """
+    s = pd.to_numeric(series, errors="coerce")
+    if window is None:
+        return expanding_pct_rank(s, min_periods)
+    roller = s.rolling(window, min_periods=min(min_periods, window))
+    return roller.apply(lambda w: (w <= w[-1]).mean() * 100.0, raw=True)
+
+
+def windowed_quantile(series: pd.Series, q: float, window: int = None,
+                      min_periods: int = 104) -> pd.Series:
+    """The band form of `windowed_pct_rank`, expanding or over a trailing window.
+
+    Has to move with the rank it is drawn beside: a band from all history under a line
+    ranked against the last year would put a 90th-percentile reading inside its own
+    envelope, and nothing on the chart would say the two were measuring different
+    stretches of time.
+    """
+    s = pd.to_numeric(series, errors="coerce")
+    if window is None:
+        return expanding_quantile(s, q, min_periods)
+    return s.rolling(window, min_periods=min(min_periods, window)).quantile(q)
 
 
 def expanding_quantile(series: pd.Series, q: float,
