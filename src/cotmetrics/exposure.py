@@ -462,10 +462,13 @@ class AggregateExposure(NamedTuple):
     in 2026, looks exactly like one that did neither.
     """
 
-    #: The weekly total: notional_usd, risk_usd, n_markets, and the two expanding
-    #: percentile columns. There is deliberately no contracts column; see
+    #: The weekly total: notional_usd, risk_usd, n_markets, sigma_weighted, and the two
+    #: expanding percentile columns. There is deliberately no contracts column; see
     #: `aggregate_exposure` for why the one unit that does not add across markets is
-    #: absent from the frame whose whole job is adding.
+    #: absent from the frame whose whole job is adding. `sigma_weighted` is the one
+    #: quantity here that is neither a sum nor a rank: it is the gross-notional-weighted
+    #: mean of the members' daily volatility, and it is the second factor of `risk_usd`
+    #: made visible, since `risk = notional x sigma` market by market.
     frame: pd.DataFrame
     #: name -> why it is not in the total at all.
     dropped: dict
@@ -550,7 +553,8 @@ def aggregate_exposure(names, *, leg: str = LEG_COMM, lookback: str = "Custom",
         per_market[name] = ex
 
     empty = pd.DataFrame(columns=["notional_usd", "risk_usd", "n_markets",
-                                  "notional_pct_rank", "risk_pct_rank"])
+                                  "sigma_weighted", "notional_pct_rank",
+                                  "risk_pct_rank"])
     if not per_market:
         return AggregateExposure(empty, dropped, {}, {}, 0, numeraire, {})
 
@@ -583,6 +587,29 @@ def aggregate_exposure(names, *, leg: str = LEG_COMM, lookback: str = "Custom",
         "risk_usd": risk[complete].sum(axis=1),
     })
     out["n_markets"] = len(per_market)
+
+    # The volatility of what the set is HOLDING, weighted by how much of it is held.
+    #
+    # A set has no volatility of its own, so this is the one summary that survives the
+    # aggregation honestly, and the weights are GROSS on purpose. Signed weights are the
+    # obvious choice and they are wrong: ``risk_usd / notional_usd`` is a signed-weighted
+    # mean, so on a set whose members lean opposite ways the denominator passes through
+    # zero and the "volatility" goes to infinity and changes sign, on a week where
+    # nothing about any member's volatility happened.
+    #
+    # For a single market it reduces to that market's own sigma exactly, so a caller
+    # drawing this has one code path rather than a special case.
+    #
+    # Numeraire-free, and that falls out rather than being arranged: sigma is a fraction,
+    # and dividing every notional by the same gold price leaves the weights unchanged.
+    gross = notional[complete].abs()
+    weight = gross.sum(axis=1)
+    out["sigma_weighted"] = (
+        (gross * _stack("sigma_daily")[complete]).sum(axis=1)
+        # A week where every member is flat has no holdings to weight by. NaN says so;
+        # zero would claim the set holds something with no volatility.
+        / weight.where(weight > 0)
+    )
     out["notional_pct_rank"] = expanding_pct_rank(out["notional_usd"], min_rank_periods)
     out["risk_pct_rank"] = expanding_pct_rank(out["risk_usd"], min_rank_periods)
 

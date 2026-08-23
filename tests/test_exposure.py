@@ -177,7 +177,8 @@ def test_the_total_carries_no_contracts_column_because_contracts_do_not_add(pric
     agg = ex.aggregate_exposure(["A", "B"], leg=ex.LEG_COMM, frames=_two_market_frames())
     assert "net_contracts" not in agg.frame.columns
     assert set(agg.frame.columns) == {"notional_usd", "risk_usd", "n_markets",
-                                      "notional_pct_rank", "risk_pct_rank"}
+                                      "sigma_weighted", "notional_pct_rank",
+                                      "risk_pct_rank"}
     assert all("net_contracts" in m.columns for m in agg.members.values())
 
 
@@ -654,3 +655,79 @@ def test_weeks_with_no_multiplier_drop_out_of_the_aggregate(monkeypatch):
     # Week 1 is incomplete for A, so the total starts at week 2 rather than counting B alone.
     assert list(agg.frame.index) == [pd.Timestamp("2026-01-13")]
     assert agg.frame["notional_usd"].iloc[0] == -100 * 1.0 * 10 * 2
+
+
+# ── the set's volatility ──────────────────────────────────────────────────────
+
+def _sized_frames():
+    """Two markets, one ten times the other's size, on the same two weeks."""
+    return {
+        "Big": {"frame": weekly(["2026-01-06", "2026-01-13"], comm=[1000.0, 1000.0]),
+                "symbol": "BIG"},
+        "Small": {"frame": weekly(["2026-01-06", "2026-01-13"], comm=[100.0, 100.0]),
+                  "symbol": "SMALL"},
+    }
+
+
+@pytest.fixture
+def two_vols(monkeypatch):
+    """BIG at 2% daily, SMALL at 12%, both priced at 100 with a multiplier of 50."""
+    monkeypatch.setattr(ex, "point_values", lambda: {"BIG": 50.0, "SMALL": 50.0,
+                                                     "GC": 100.0})
+    monkeypatch.setattr(ex, "price_levels",
+                        lambda s, *a, **k: daily("2026-01-01", [2000.0] * 40)
+                        if s == "GC" else daily("2026-01-01", [100.0] * 40))
+    monkeypatch.setattr(ex, "sigma_series",
+                        lambda s, **k: daily("2026-01-01",
+                                             [0.12 if s == "SMALL" else 0.02] * 40))
+
+
+def test_a_single_market_total_reports_that_markets_own_volatility(priced):
+    """The weighted mean of one thing is that thing, so a caller drawing this has one
+    code path rather than a single-market special case."""
+    agg = ex.aggregate_exposure(["A"], leg=ex.LEG_COMM, frames={
+        "A": {"frame": weekly(["2026-01-06", "2026-01-13"], comm=[-100.0, -200.0]),
+              "symbol": "TEST"}})
+    assert agg.frame["sigma_weighted"].round(10).eq(0.02).all()
+
+
+def test_the_sets_volatility_is_weighted_by_how_much_is_held(two_vols):
+    """(10 x 0.02 + 1 x 0.12) / 11 = 0.0291. The big position is most of the answer,
+    which is the only weighting that describes what a holder is exposed to."""
+    agg = ex.aggregate_exposure(["Big", "Small"], leg=ex.LEG_COMM,
+                                frames=_sized_frames())
+    assert agg.frame["sigma_weighted"].round(4).eq(0.0291).all()
+
+
+def test_the_weights_are_GROSS_so_opposed_members_cannot_blow_it_up(two_vols):
+    """The obvious weighting is signed, which is exactly `risk_usd / notional_usd`, and
+    it is wrong: on a set whose members lean opposite ways the denominator passes
+    through zero, so the volatility goes to infinity and changes sign on a week where
+    nothing about any member's volatility happened."""
+    frames = _sized_frames()
+    frames["Small"]["frame"] = weekly(["2026-01-06", "2026-01-13"],
+                                      comm=[-1000.0, -1000.0])
+    agg = ex.aggregate_exposure(["Big", "Small"], leg=ex.LEG_COMM, frames=frames)
+    signed = agg.frame["risk_usd"] / agg.frame["notional_usd"]
+    assert not np.isfinite(signed).all()
+    assert agg.frame["sigma_weighted"].round(10).eq(0.07).all()
+
+
+def test_a_week_holding_nothing_has_no_holdings_to_weight_by(priced):
+    """NaN, not zero. Zero would claim the set holds something with no volatility."""
+    agg = ex.aggregate_exposure(["A"], leg=ex.LEG_COMM, frames={
+        "A": {"frame": weekly(["2026-01-06", "2026-01-13"], comm=[0.0, 0.0]),
+              "symbol": "TEST"}})
+    assert agg.frame["sigma_weighted"].isna().all()
+
+
+def test_the_sets_volatility_does_not_move_when_the_numeraire_does(two_vols):
+    """Sigma is a fraction and the gold divisor hits every notional equally, so the
+    weights are unchanged. A volatility that moved with the numeraire would be
+    describing the numeraire."""
+    usd = ex.aggregate_exposure(["Big", "Small"], leg=ex.LEG_COMM,
+                                frames=_sized_frames())
+    gold = ex.aggregate_exposure(["Big", "Small"], leg=ex.LEG_COMM,
+                                 numeraire=ex.NUMERAIRE_GOLD, frames=_sized_frames())
+    pd.testing.assert_series_equal(usd.frame["sigma_weighted"],
+                                   gold.frame["sigma_weighted"])
