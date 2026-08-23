@@ -731,3 +731,45 @@ def test_the_sets_volatility_does_not_move_when_the_numeraire_does(two_vols):
                                  numeraire=ex.NUMERAIRE_GOLD, frames=_sized_frames())
     pd.testing.assert_series_equal(usd.frame["sigma_weighted"],
                                    gold.frame["sigma_weighted"])
+
+
+# ── the trailing window ───────────────────────────────────────────────────────
+
+def test_no_window_is_the_expanding_form():
+    """The default has to be the behaviour that already shipped, byte for byte."""
+    s = pd.Series([float(v) for v in range(20)],
+                  index=pd.date_range("2026-01-06", periods=20, freq="W-TUE"))
+    pd.testing.assert_series_equal(ex.windowed_pct_rank(s, None, min_periods=4),
+                                   ex.expanding_pct_rank(s, min_periods=4))
+    pd.testing.assert_series_equal(ex.windowed_quantile(s, 0.9, None, min_periods=4),
+                                   ex.expanding_quantile(s, 0.9, min_periods=4))
+
+
+def test_a_window_forgets_what_falls_out_of_it():
+    """The point of the feature. A value that was the highest ever is only the highest
+    of the last N weeks, and once the peak leaves the window the reading changes without
+    the series doing anything."""
+    idx = pd.date_range("2026-01-06", periods=8, freq="W-TUE")
+    s = pd.Series([100.0, 1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0], index=idx)
+    expanding = ex.windowed_pct_rank(s, None, min_periods=1)
+    windowed = ex.windowed_pct_rank(s, 3, min_periods=1)
+    # Week 8 is mid-pack against all history, which still holds the 100.
+    assert expanding.iloc[-1] < 100
+    # Against the last three weeks it is the highest there has been.
+    assert windowed.iloc[-1] == 100
+
+
+def test_min_periods_is_clamped_to_the_window():
+    """A window cannot wait for more observations than it holds. Asking for 26 weeks
+    with a two-year minimum means the first, and NaN forever would be the other."""
+    idx = pd.date_range("2026-01-06", periods=30, freq="W-TUE")
+    s = pd.Series([float(v) for v in range(30)], index=idx)
+    assert ex.windowed_pct_rank(s, 4, min_periods=104).notna().any()
+    assert ex.windowed_quantile(s, 0.5, 4, min_periods=104).notna().any()
+
+
+def test_the_total_can_be_ranked_over_a_window(priced):
+    agg = ex.aggregate_exposure(["A", "B"], leg=ex.LEG_COMM,
+                                frames=_two_market_frames(), min_rank_periods=1,
+                                rank_window=2)
+    assert agg.frame["risk_pct_rank"].notna().all()
