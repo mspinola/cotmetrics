@@ -521,3 +521,136 @@ def test_the_gold_composite_still_starts_at_the_base(monkeypatch):
     got = ex.composite_price_index(["A"], numeraire=ex.NUMERAIRE_GOLD,
                                    frames={"A": {"symbol": "A"}})
     assert got.iloc[0] == pytest.approx(100.0)
+
+
+# ── effective-dated multipliers ───────────────────────────────────────────────
+#
+# `point_values` reads contract_specs, one row per symbol with no effective date. It
+# answers "can this market be priced". `point_value_series` answers "what was it worth
+# that week", which differs wherever an exchange re-denominated a contract. The live
+# case is RTY: ICE cut the Russell multiplier from $100 to $50 on 2016-12-05 with no
+# CFTC rename to mark it, so 740 of its 1,247 priced weeks sit on the old contract.
+#
+# marketdata owns the regime data. These tests inject it rather than reading the
+# packaged file, so they pin THIS package's behaviour (per-week multiply, refusal,
+# fallback) and not marketdata's table, which has its own tests.
+
+
+@pytest.fixture
+def regimed(monkeypatch):
+    """Fake a marketdata whose only declared symbol is TEST: 200 before 2026-01-10,
+    50 from it. Same shape as the real Russell change, an order of magnitude smaller."""
+    def read_contract_regimes(symbol):
+        if symbol != "TEST":
+            return pd.DataFrame()
+        return pd.DataFrame({"Symbol": ["TEST", "TEST"],
+                             "Valid_From": pd.to_datetime([None, "2026-01-10"]),
+                             "Point_Value": [200.0, 50.0]})
+
+    def point_value_asof(symbol, dates):
+        idx = pd.DatetimeIndex(pd.to_datetime(dates))
+        return pd.Series(np.where(idx < pd.Timestamp("2026-01-10"), 200.0, 50.0),
+                         index=idx, dtype="float64")
+
+    fake = type("M", (), {"read_contract_regimes": staticmethod(read_contract_regimes),
+                          "point_value_asof": staticmethod(point_value_asof)})
+    monkeypatch.setitem(__import__("sys").modules, "marketdata", fake)
+    return fake
+
+
+def test_a_re_denominated_contract_uses_the_multiplier_of_its_own_week(priced, regimed):
+    frame = weekly(["2026-01-06", "2026-01-13"], comm=[-1000.0, -1000.0])
+    out = ex.market_exposure("t", leg=ex.LEG_COMM, frame=frame, symbol="TEST")
+    assert list(out["point_value"]) == [200.0, 50.0]
+    # Same contract count, same price, four times the dollars before the change.
+    assert list(out["notional_usd"]) == [-1000 * 200 * 100, -1000 * 50 * 100]
+
+
+def test_the_point_value_column_reports_the_week_not_today(priced, regimed):
+    """A reader checking why an old week is large must be able to see the multiplier
+    that produced it. A column carrying today's value would explain nothing."""
+    frame = weekly(["2026-01-06", "2026-01-13"], comm=[0.0, 0.0])
+    out = ex.market_exposure("t", leg=ex.LEG_COMM, frame=frame, symbol="TEST")
+    assert out["point_value"].nunique() == 2
+
+
+def test_risk_inherits_the_correction(priced, regimed):
+    """risk_usd is notional x sigma, so it must move with the multiplier, not beside it."""
+    frame = weekly(["2026-01-06"], comm=[-1000.0])
+    out = ex.market_exposure("t", leg=ex.LEG_COMM, frame=frame, symbol="TEST")
+    assert out["risk_usd"].iloc[0] == pytest.approx(-1000 * 200 * 100 * 0.02)
+
+
+def test_an_undeclared_symbol_keeps_one_multiplier_for_its_whole_history(priced, monkeypatch):
+    """The common case, and it must stay a flat series: nothing established a
+    re-denomination for these markets, which is a claim, not a shrug."""
+    fake = type("M", (), {
+        "read_contract_regimes": staticmethod(lambda s: pd.DataFrame()),
+        "point_value_asof": staticmethod(lambda s, d: pytest.fail(
+            "an undeclared symbol must not need a regime lookup"))})
+    monkeypatch.setitem(__import__("sys").modules, "marketdata", fake)
+    dates = pd.to_datetime(["2026-01-06", "2026-01-13"])
+    assert list(ex.point_value_series("TEST", dates)) == [50.0, 50.0]
+
+
+def test_an_unestablished_multiplier_gives_no_dollars_rather_than_a_guess(priced, monkeypatch):
+    """marketdata returns NaN where a regime was never established (LBR before 1995).
+    The dollars must go with it: a gap is visible on a chart and a guess is not."""
+    def point_value_asof(symbol, dates):
+        idx = pd.DatetimeIndex(pd.to_datetime(dates))
+        return pd.Series([np.nan, 50.0], index=idx, dtype="float64")
+
+    fake = type("M", (), {
+        "read_contract_regimes": staticmethod(lambda s: pd.DataFrame({"Symbol": ["TEST"]})),
+        "point_value_asof": staticmethod(point_value_asof)})
+    monkeypatch.setitem(__import__("sys").modules, "marketdata", fake)
+
+    frame = weekly(["2026-01-06", "2026-01-13"], comm=[-1000.0, -1000.0])
+    out = ex.market_exposure("t", leg=ex.LEG_COMM, frame=frame, symbol="TEST")
+    assert np.isnan(out["notional_usd"].iloc[0])
+    assert np.isnan(out["risk_usd"].iloc[0])
+    assert out["notional_usd"].iloc[1] == -1000 * 50 * 100
+
+
+def test_a_marketdata_without_regimes_is_refused_not_silently_flattened(priced, monkeypatch):
+    """The failure this whole change exists to prevent. Falling back to the flat series
+    would return a plausible number that is wrong by 2x on RTY, and nothing downstream
+    could tell. Refuse loudly and name the version."""
+    fake = type("M", (), {})           # marketdata < 0.2.0: no regime API at all
+    monkeypatch.setitem(__import__("sys").modules, "marketdata", fake)
+    with pytest.raises(ex.ExposureError, match="0.2.0"):
+        ex.point_value_series("TEST", pd.to_datetime(["2026-01-06"]))
+
+
+def test_membership_still_comes_from_the_current_spec(priced, regimed):
+    """A market absent from contract_specs has no dollars at all, and that check must
+    stay on the CURRENT table: a regime table cannot say a market is unpriceable."""
+    frame = weekly(["2026-01-06"], comm=[-1000.0])
+    out = ex.market_exposure("t", leg=ex.LEG_COMM, frame=frame, symbol="ABSENT")
+    assert np.isnan(out["notional_usd"].iloc[0])
+    assert np.isnan(out["point_value"].iloc[0])
+
+
+def test_weeks_with_no_multiplier_drop_out_of_the_aggregate(monkeypatch):
+    """An unestablished multiplier must not quietly become a zero in a sum."""
+    monkeypatch.setattr(ex, "point_values", lambda: {"A": 1.0, "B": 1.0})
+    monkeypatch.setattr(ex, "price_levels", lambda s, *a, **k: daily("2026-01-01", [10.0] * 40))
+    monkeypatch.setattr(ex, "sigma_series", lambda s, **k: daily("2026-01-01", [0.01] * 40))
+
+    def point_value_asof(symbol, dates):
+        idx = pd.DatetimeIndex(pd.to_datetime(dates))
+        vals = [np.nan, 1.0] if symbol == "A" else [1.0, 1.0]
+        return pd.Series(vals, index=idx, dtype="float64")
+
+    fake = type("M", (), {
+        "read_contract_regimes": staticmethod(lambda s: pd.DataFrame({"Symbol": [s]})),
+        "point_value_asof": staticmethod(point_value_asof)})
+    monkeypatch.setitem(__import__("sys").modules, "marketdata", fake)
+
+    dates = ["2026-01-06", "2026-01-13"]
+    frames = {"a": {"frame": weekly(dates, comm=[-100.0, -100.0]), "symbol": "A"},
+              "b": {"frame": weekly(dates, comm=[-100.0, -100.0]), "symbol": "B"}}
+    agg = ex.aggregate_exposure(["a", "b"], frames=frames)
+    # Week 1 is incomplete for A, so the total starts at week 2 rather than counting B alone.
+    assert list(agg.frame.index) == [pd.Timestamp("2026-01-13")]
+    assert agg.frame["notional_usd"].iloc[0] == -100 * 1.0 * 10 * 2

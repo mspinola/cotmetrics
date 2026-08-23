@@ -31,6 +31,12 @@ from packaging.utils import canonicalize_name
 # rather than a package index, so only these need the extra check.
 INTERNAL = {
     "cotdata",
+    # Distribution name; the import is `marketdata`. ADR-0007 moved bars here. It was
+    # missing from this set while the floor was a nominal '>=0.1.0' and nothing noticed;
+    # it matters now that the floor is a CORRECTNESS one (effective-dated multipliers,
+    # marketdata 0.2.0), because an unchecked floor is not a floor. npf's and
+    # cot-analyzer's copies of this script already listed it.
+    "crucible-marketdata",
     "cotmetrics",
     "crucible",
     "crucible-stack",
