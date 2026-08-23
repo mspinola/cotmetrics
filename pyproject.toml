@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "cotmetrics"
-version = "0.3.1"
+version = "0.4.0"
 description = "Turn raw COT data into positioning metrics and trading signals (positioning index, concentration/clustering/position-size, reversal signals)."
 readme = "README.md"
 license = { text = "MIT" }
@@ -29,7 +29,13 @@ dependencies = [
     # Daily bars (ADR-0007 moved them out of cotdata); editable: -e ../marketdata.
     # The DISTRIBUTION is crucible-marketdata because `marketdata` on PyPI is an
     # unrelated abandoned project; the IMPORT is still `marketdata`.
-    "crucible-marketdata>=0.1.0",
+    #
+    # FLOOR 0.2.0, and it is a correctness floor rather than a convenience one.
+    # `exposure.point_value_series` needs `marketdata.read_contract_regimes` /
+    # `point_value_asof` (added there in 0.2.0) to value a week at the multiplier that
+    # was in force THAT week. Against 0.1.0 it raises rather than falling back, because
+    # the flat answer is wrong by 2x on RTY before 2016-12-05 and wrong invisibly.
+    "crucible-marketdata>=0.2.0",
 ]
 
 [project.optional-dependencies]

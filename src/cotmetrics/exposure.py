@@ -33,6 +33,15 @@ history of the index level, and its most recent swings will always look the larg
 That is what `pct_rank` is for, and it is why `aggregate_exposure` returns it beside
 every level rather than leaving it to the caller to remember.
 
+**The multiplier is effective-dated, and the middle rung is where that bites.** A
+contract is not a fixed quantity of anything: ICE halved the Russell multiplier on
+2016-12-05 and converted each open lot into two, with no CFTC rename to mark it. Today's
+`contract_specs` row cannot say so, so `point_values` answers only whether a market can
+be priced and `point_value_series` answers what each WEEK is worth. Getting this wrong
+is quiet in a way the price-series mix-up below is not: the number stays plausible, and
+because `expanding_pct_rank` ranks each week against its own past, an under-scaled first
+half makes the second half read as more extreme rather than merely smaller.
+
 **The two factors come from two different price series, deliberately.** Notional needs
 tradeable price LEVELS and takes only ``unadj``; volatility needs correct percentage
 RETURNS and takes only ``propadj``. Neither substitutes for the other and both failures
@@ -207,6 +216,13 @@ def point_values() -> dict:
     a gap to paper over: MFS and MME are ICE MSCI futures priced off the EFA and EEM
     ETFs, and an ETF share is not a contract, so there is no multiplier that would make
     their contract count into dollars. `aggregate_exposure` names what it dropped.
+
+    **This is the CURRENT multiplier, so it answers membership, not arithmetic.** Ask it
+    whether a market can be priced at all; ask `point_value_series` what to multiply a
+    given week by. The two differ wherever an exchange re-denominated a contract, and
+    the difference is not small: ICE halved the Russell multiplier on 2016-12-05, so
+    using this value for the whole history understates 59% of RTY's priced weeks by
+    exactly 2x. See `point_value_series`.
     """
     from marketdata.store import read_metadata
     specs = read_metadata()
@@ -218,6 +234,51 @@ def point_values() -> dict:
     return {str(sym): float(val)
             for sym, val in zip(specs["Symbol"], pv)
             if pd.notna(val) and val > 0}
+
+
+def point_value_series(symbol: str, dates) -> pd.Series:
+    """USD per point FOR EACH WEEK, which is not the same as USD per point.
+
+    `point_values` reads `contract_specs`, which carries one row per symbol and no
+    effective date. That is the right shape for "can this market be priced" and the
+    wrong input for "what was this position worth in 2010", because an exchange can
+    re-denominate a contract and the current table cannot say so.
+
+    The live case is the Russell. ICE cut the multiplier from $100 to $50 per index
+    point effective 2016-12-05 and converted each open lot into two, with no CFTC rename
+    to mark it, so 740 of RTY's 1,247 priced weeks sit on the old contract. Multiplying
+    them by today's $50 halves both notional and dollar risk. Worse than the level error,
+    it compresses the first half of the history that `expanding_pct_rank` ranks the
+    second half against, so every post-2016 reading comes out more extreme than it is.
+
+    marketdata owns the regime table (`contract_regimes.yaml`, added in 0.2.0) because a
+    contract's history is a property of the contract, not of this package, and because
+    npf's cost model needs the same answer. Here we only ask it.
+
+    Undeclared symbols keep the current value for every date, which is a positive claim
+    and not a shrug: nothing established a re-denomination for them. Where a multiplier
+    was never established at all, marketdata returns NaN and the dollars go with it,
+    which is the outcome to want. A gap is visible on a chart; a guess is not.
+    """
+    index = pd.DatetimeIndex(pd.to_datetime(dates))
+    current = point_values().get(symbol)
+
+    try:
+        import marketdata
+        declared = not marketdata.read_contract_regimes(symbol).empty
+    except (ImportError, AttributeError) as e:
+        # A marketdata too old to carry regimes. Refuse rather than silently returning
+        # the flat series: the whole point of this function is that the flat answer is
+        # wrong for some markets, and a wrong number here is invisible downstream.
+        raise ExposureError(
+            f"effective-dated contract multipliers need marketdata >= 0.2.0 "
+            f"(`marketdata.read_contract_regimes` is unavailable: {e}). Without it a "
+            f"re-denominated contract, such as RTY before 2016-12-05, would be valued "
+            f"at today's multiplier for its whole history.") from e
+
+    if not declared:
+        return pd.Series(current, index=index, dtype="float64")
+    return marketdata.point_value_asof(symbol, index)
 
 
 # ── the two price series ──────────────────────────────────────────────────────
@@ -364,6 +425,7 @@ def market_exposure(name: str, *, leg: str = LEG_COMM, lookback: str = "Custom",
     out = pd.DataFrame({"net_contracts": net.to_numpy()}, index=dates)
     out.index.name = "Date"
 
+    # Membership only. The per-week values come from `point_value_series` below.
     pv = point_values().get(symbol)
     if pv is None:
         # Not an error. A market with no multiplier has no dollar value, and saying so
@@ -375,9 +437,11 @@ def market_exposure(name: str, *, leg: str = LEG_COMM, lookback: str = "Custom",
         out["risk_usd"] = np.nan
         return out
 
-    out["point_value"] = pv
+    # Elementwise, not a scalar multiply. `pv` above answered whether this market has a
+    # multiplier at all; this answers what it was in each of these weeks.
+    out["point_value"] = point_value_series(symbol, out.index).to_numpy()
     out["price"] = _asof(price_levels(symbol), out.index, max_staleness_days).to_numpy()
-    out["notional_usd"] = out["net_contracts"] * pv * out["price"]
+    out["notional_usd"] = out["net_contracts"] * out["point_value"] * out["price"]
     out["sigma_daily"] = _asof(
         sigma_series(symbol, window=window, min_periods=min_periods),
         out.index, max_staleness_days).to_numpy()
