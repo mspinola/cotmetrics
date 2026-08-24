@@ -5,12 +5,16 @@
 # untuned 52-week lookbacks. Point COTMETRICS_PARAMS at your own file to supply
 # a real instrument universe and any tuned parameters.
 
-# Price type to use for daily estimations ("close" or "settlement").
-price_type: "settlement"
-
-# flow_caps was removed 2026-08-23: its only consumer, the intra-week gap
-# estimator estimate_current_gap_positions, was deleted in 734bbc6 (an ADR-0006
-# prerequisite), and the key was loaded and read by nothing thereafter.
+# price_type and flow_caps were both removed 2026-08-23, along with the
+# CotIndexer.load_price_config method that was the only thing reading either.
+# flow_caps had one consumer, the intra-week gap estimator
+# estimate_current_gap_positions, deleted in 734bbc6 as an ADR-0006
+# prerequisite. Its measured per-class bind rates are preserved in
+# cotmetrics-config/docs/flow-cap-calibration.md. price_type had no consumer in
+# any surviving checkout, and since ADR-0007 it has nothing to select between:
+# stored bars are (Open, High, Low, Close, Volume) with no settlement column,
+# because both futures providers already put settlement IN Close (Norgate
+# natively, databento via _with_settlement). Re-adding either key does nothing.
 
 # Lookback windows (weeks) computed for every COT report.
 lookbacks:

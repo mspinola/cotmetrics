@@ -147,7 +147,6 @@ class CotIndexer:
         self.load_roles()
         self.load_instruments()
         self.load_lookbacks()
-        self.load_price_config()
 
         if self.try_load_from_cache():
             utils.cot_logger.info("CotIndexer: Loaded instruments from Parquet cache!")
@@ -232,20 +231,6 @@ class CotIndexer:
             yaml_data = yaml.safe_load(yf)
             for lb in yaml_data["lookbacks"]:
                 self.lookbacks.append([lb[0], int(lb[1])])
-
-    def load_price_config(self):
-        """Loads price_type from params.yaml.
-
-        flow_caps was loaded here until its only reader, the intra-week gap
-        estimator estimate_current_gap_positions, was deleted in 734bbc6 (an
-        ADR-0006 prerequisite: it was the last thing needing provider-side
-        volume/OI). The measured bind rates behind the tuned per-class values
-        are preserved in cotmetrics-config/docs/flow-cap-calibration.md, which
-        is where to start if the nowcast study ever revives the estimator.
-        """
-        with open(self.params_dir, 'r') as yf:
-            yaml_data = yaml.safe_load(yf)
-            self.price_type = yaml_data.get("price_type", "close")
 
     def _load_raw_cot(self, columns=None) -> pd.DataFrame:
         """Raw weekly COT (Legacy schema, Report_Date as a column) from the cotdata
