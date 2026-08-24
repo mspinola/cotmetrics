@@ -976,7 +976,7 @@ def rank_column(column: str) -> str:
     return column.replace("_usd", "") + "_pct_rank"
 
 
-def contribution_table(members: dict, *, when=None,
+def contribution_table(members: dict, *, when=None, window: int = None,
                        min_rank_periods: int = 104) -> pd.DataFrame:
     """One week of every member, in both units, each ranked against ITS OWN history.
 
@@ -990,6 +990,15 @@ def contribution_table(members: dict, *, when=None,
     scales, and ranking them against the total would put them back on its axis by
     another route.
 
+    `window` is the stretch of that history to rank against, in weeks, and `None` is the
+    expanding form this took before the parameter existed. It has to be here rather than
+    left to the caller because the table is read BESIDE an aggregate percentile: a
+    caller that ranks its total over the last 52 weeks and gets a table ranked over
+    twenty years is showing two numbers headed "%ile" that were measured over different
+    stretches of time, with nothing on the row saying so. `windowed_pct_rank` carries
+    the argument for the two forms; this signature exists so a caller can hold them to
+    one answer.
+
     Rows are ordered by absolute contribution in the FIRST unit that has values, so the
     market driving the total leads. Members with no value that week are dropped rather
     than carried as blanks: the table is a decomposition of a number, and a row that
@@ -1002,7 +1011,7 @@ def contribution_table(members: dict, *, when=None,
             if column not in frame.columns:
                 continue
             series = pd.to_numeric(frame[column], errors="coerce")
-            ranks = expanding_pct_rank(series, min_rank_periods)
+            ranks = windowed_pct_rank(series, window, min_rank_periods)
             stamp = when if (when is not None and when in series.index) else None
             if stamp is None:
                 valid = series.dropna()
