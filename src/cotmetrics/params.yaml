@@ -2,16 +2,15 @@
 #
 # This is a public SAMPLE. It ships with the package so cotmetrics runs out of
 # the box, but it is deliberately generic: a small representative universe with
-# untuned 52-week lookbacks and default flow caps. Point COTMETRICS_PARAMS at
-# your own file to supply a real instrument universe and any tuned parameters.
+# untuned 52-week lookbacks. Point COTMETRICS_PARAMS at your own file to supply
+# a real instrument universe and any tuned parameters.
 
 # Price type to use for daily estimations ("close" or "settlement").
 price_type: "settlement"
 
-# Max daily open-interest flow as a fraction of daily volume, per asset class.
-# Generic defaults here; calibrate per class in your own config.
-flow_caps:
-  Default: 0.10
+# flow_caps was removed 2026-08-23: its only consumer, the intra-week gap
+# estimator estimate_current_gap_positions, was deleted in 734bbc6 (an ADR-0006
+# prerequisite), and the key was loaded and read by nothing thereafter.
 
 # Lookback windows (weeks) computed for every COT report.
 lookbacks:
