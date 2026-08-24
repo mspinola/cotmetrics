@@ -118,6 +118,19 @@ DEFAULT_MAX_STALENESS_DAYS = 5
 #: here claims it is one: gold and consumer prices come apart for decades at a time, and
 #: an inflation framing would invite reading a rise as real growth.
 #:
+#: **And an inflation adjustment would not help anyway, which is now measured rather than
+#: argued.** `npf/docs/analysis/2026-08-24-exposure-numeraire-levels.md` built the CPI arm
+#: this docstring's framing refuses and scored it on 43 markets: deflating by CPI moved a
+#: reader's percentile by a median of 1.1 to 2.1 points and flipped the headline band on
+#: at most 5.7% of weeks, clearing the study's bar on ZERO of nine asset classes against
+#: gold's eight. It leaves about 60% of the drift standing where gold leaves a fifth. So
+#: the refusal above costs nothing: the framing was wrong AND the adjustment is inert.
+#:
+#: What answers the drift is neither, and it is not a numeraire at all. See the share
+#: columns on `aggregate_exposure`. Stated narrowly on purpose: this is a result about
+#: CPI, not about deflators as a class. The study ran no placebo divisor and no
+#: trade-weighted dollar, so nothing here licenses "no deflator would work".
+#:
 #: A side effect worth knowing, since it is why the view is legible at all: measuring
 #: against gold happens to flatten these series a great deal, as the ratio of the last
 #: third's median absolute weekly figure to the first third's shows. That is a property
