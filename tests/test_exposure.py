@@ -388,6 +388,31 @@ def test_each_member_is_ranked_against_its_own_history(priced):
     assert table.loc["steady", "notional_pct_rank"] == pytest.approx(100.0)
 
 
+def test_a_window_renormalises_where_the_expanding_form_does_not(priced):
+    """The parameter exists so a caller can hold the table and the aggregate percentile
+    it sits under to one stretch of weeks. A series that climbs and then steps back is
+    mid-range against all of it and at the bottom of its last few weeks, and only a
+    table that follows the window can say the second thing."""
+    dates = pd.date_range("2026-01-06", periods=6, freq="W-TUE")
+    frames = {"faded": {"frame": weekly([str(d.date()) for d in dates],
+                                        comm=[-10.0, -20.0, -30.0, -40.0, -50.0,
+                                              -25.0]),
+                        "symbol": "TEST"}}
+    agg = ex.aggregate_exposure(["faded"], leg=ex.LEG_COMM, frames=frames)
+    expanding = ex.contribution_table(agg.members, min_rank_periods=1)
+    windowed = ex.contribution_table(agg.members, window=3, min_rank_periods=1)
+    # Commercial net is negative, so notional runs the other way and a step back toward
+    # zero ranks HIGH: two thirds of the way up all six weeks, and top of the last three.
+    assert expanding.loc["faded", "notional_pct_rank"] == pytest.approx(400 / 6)
+    assert windowed.loc["faded", "notional_pct_rank"] == pytest.approx(100.0)
+
+
+def test_the_window_is_expanding_by_default_so_no_caller_moved(priced):
+    agg = ex.aggregate_exposure(["A", "B"], leg=ex.LEG_COMM, frames=_two_market_frames())
+    assert ex.contribution_table(agg.members, min_rank_periods=1).equals(
+        ex.contribution_table(agg.members, window=None, min_rank_periods=1))
+
+
 def test_the_market_driving_the_total_leads_the_table(priced):
     agg = ex.aggregate_exposure(["A", "B"], leg=ex.LEG_COMM, frames=_two_market_frames())
     table = ex.contribution_table(agg.members, min_rank_periods=1)
