@@ -12,14 +12,20 @@ import cotmetrics.constants as const
 import cotmetrics.exposure as ex
 
 
-def weekly(dates, comm=None, large=None, small=None):
+def weekly(dates, comm=None, large=None, small=None, oi=None):
+    """`oi=None` builds a frame with NO open-interest column at all, which is the shape
+    a caller-injected frame can genuinely have and the one the share columns have to
+    survive. Pass `oi` to exercise them."""
     idx = pd.DatetimeIndex(pd.to_datetime(dates), name="Date")
     n = len(idx)
-    return pd.DataFrame({
+    columns = {
         const.COMM_NET: comm if comm is not None else [0.0] * n,
         const.LARGE_NET: large if large is not None else [0.0] * n,
         const.SMALL_NET: small if small is not None else [0.0] * n,
-    }, index=idx)
+    }
+    if oi is not None:
+        columns[const.OPEN_INTEREST] = oi
+    return pd.DataFrame(columns, index=idx)
 
 
 def daily(start, values):
@@ -178,7 +184,9 @@ def test_the_total_carries_no_contracts_column_because_contracts_do_not_add(pric
     assert "net_contracts" not in agg.frame.columns
     assert set(agg.frame.columns) == {"notional_usd", "risk_usd", "n_markets",
                                       "sigma_weighted", "notional_pct_rank",
-                                      "risk_pct_rank"}
+                                      "risk_pct_rank", "notional_oi_share",
+                                      "risk_oi_share", "notional_oi_share_pct_rank",
+                                      "risk_oi_share_pct_rank"}
     assert all("net_contracts" in m.columns for m in agg.members.values())
 
 
@@ -773,3 +781,124 @@ def test_the_total_can_be_ranked_over_a_window(priced):
                                 frames=_two_market_frames(), min_rank_periods=1,
                                 rank_window=2)
     assert agg.frame["risk_pct_rank"].notna().all()
+
+
+# ── share of open interest ────────────────────────────────────────────────────
+#
+# Justified by measurement, not by taste:
+# `npf/docs/analysis/2026-08-24-exposure-numeraire-levels.md` scored this against USD,
+# CPI-deflated dollars and gold on 43 markets. It cleared the study's bar on 7 of 9
+# asset classes on both units, where CPI cleared 0 of 9. It FAILS on Softs and
+# Currencies, which is why nothing here calls it a strict improvement.
+
+
+def test_one_markets_share_is_the_plain_contract_share(priced):
+    """The whole dollar apparatus cancels, exactly and not approximately.
+
+    `net x pv x price / (OI x pv x price)` is `net / OI`, which is the ordinary OI
+    normalisation this package already computes per market as `COMM_PCT_OI`. That is the
+    argument for putting a dollar-denominated share beside the dollar columns at all: on
+    one market it is not a new quantity, it is the familiar one, and the dollars only
+    start doing work when a set has to be weighted by member size.
+    """
+    frame = weekly(["2026-01-06", "2026-01-13"], comm=[-1000.0, -2000.0],
+                   oi=[8000.0, 8000.0])
+    out = ex.market_exposure("t", leg=ex.LEG_COMM, frame=frame, symbol="TEST")
+    share = out["notional_usd"] / out["oi_notional_usd"]
+    assert list(share) == [-1000 / 8000, -2000 / 8000]
+
+
+def test_the_risk_share_cancels_volatility_too(priced):
+    """Both sides carry the same sigma, so the risk share is the SAME share.
+
+    This is why the risk column is a percentage at all. Dividing dollar RISK by dollar
+    NOTIONAL, which is the obvious thing and what the validating study measured, leaves a
+    share scaled by volatility: a number that ranks fine and means nothing.
+    """
+    frame = weekly(["2026-01-06"], comm=[-1000.0], oi=[8000.0])
+    out = ex.market_exposure("t", leg=ex.LEG_COMM, frame=frame, symbol="TEST")
+    assert (out["risk_usd"] / out["oi_risk_usd"]).iloc[0] == pytest.approx(-1000 / 8000)
+
+
+def test_the_set_divides_sums_not_shares(priced):
+    """A mean of per-market shares weights orange juice equally with ES.
+
+    Two markets, same price and multiplier: A holds 100 of an 8,000 lot market (1.25%)
+    and B holds 100 of a 200 lot market (50%). The mean of the shares is 25.6%; the share
+    of the total is 200/8200, about 2.4%, because A's market is forty times B's. The
+    second is what a complex-wide view is asking.
+    """
+    frames = {
+        "A": {"frame": weekly(["2026-01-06"], comm=[100.0], oi=[8000.0]), "symbol": "TEST"},
+        "B": {"frame": weekly(["2026-01-06"], comm=[100.0], oi=[200.0]), "symbol": "TEST"},
+    }
+    agg = ex.aggregate_exposure(["A", "B"], leg=ex.LEG_COMM, min_rank_periods=1,
+                                frames=frames)
+    assert agg.frame["notional_oi_share"].iloc[0] == pytest.approx(200 / 8200)
+    assert agg.frame["notional_oi_share"].iloc[0] != pytest.approx((0.0125 + 0.5) / 2)
+
+
+def test_the_share_is_the_same_number_in_gold(monkeypatch, priced):
+    """A ratio of two quantities in the same unit is numeraire-free by construction.
+
+    Structural rather than lucky, and it is why these columns carry no `_usd` suffix: the
+    divisor cancels out of both sides. A share that moved when the Gold switch moved would
+    be a share of nothing.
+    """
+    monkeypatch.setattr(ex, "price_levels",
+                        lambda s, *a, **k: daily("2026-01-01", [100.0] * 40)
+                        if s != "GC" else daily("2026-01-01", list(range(100, 140))))
+    frames = {"A": {"frame": weekly(["2026-01-06", "2026-01-13"], comm=[100.0, 200.0],
+                                    oi=[8000.0, 8000.0]), "symbol": "TEST"}}
+    in_usd = ex.aggregate_exposure(["A"], leg=ex.LEG_COMM, min_rank_periods=1,
+                                   frames=frames)
+    in_gold = ex.aggregate_exposure(["A"], leg=ex.LEG_COMM, min_rank_periods=1,
+                                    numeraire=ex.NUMERAIRE_GOLD, frames=frames)
+    # To floating point, not bit for bit: dividing both sides by the gold price and then
+    # dividing them by each other is not the same sequence of operations as dividing them
+    # directly. The cancellation is exact in the algebra and 1 part in 1e16 in doubles.
+    assert (list(in_usd.frame["notional_oi_share"])
+            == pytest.approx(list(in_gold.frame["notional_oi_share"])))
+
+
+def test_one_member_without_open_interest_costs_the_SET_its_share(priced):
+    """Not a partial denominator, which is the failure that would not look like one.
+
+    A numerator over every market above a denominator over the rest is an inflated share
+    with nothing in the frame to say so, and it reads as crowding. Better to have no share
+    that week than a wrong one.
+    """
+    frames = {
+        "A": {"frame": weekly(["2026-01-06"], comm=[100.0], oi=[8000.0]), "symbol": "TEST"},
+        "B": {"frame": weekly(["2026-01-06"], comm=[100.0]), "symbol": "TEST"},
+    }
+    agg = ex.aggregate_exposure(["A", "B"], leg=ex.LEG_COMM, min_rank_periods=1,
+                                frames=frames)
+    assert agg.frame["notional_usd"].iloc[0] == 200 * 50 * 100
+    assert pd.isna(agg.frame["notional_oi_share"].iloc[0])
+
+
+def test_non_positive_open_interest_does_not_become_a_record_reading(priced):
+    """Zero open interest is a bad row, not an empty market, and dividing by it would
+    produce an infinity that sorts to the top of a percentile."""
+    frame = weekly(["2026-01-06", "2026-01-13"], comm=[100.0, 100.0], oi=[0.0, 8000.0])
+    out = ex.market_exposure("t", leg=ex.LEG_COMM, frame=frame, symbol="TEST")
+    assert pd.isna(out["oi_notional_usd"].iloc[0])
+    assert out["oi_notional_usd"].iloc[1] == 8000 * 50 * 100
+
+
+def test_a_frame_with_no_open_interest_column_still_prices(priced):
+    """The column name is not guaranteed. A market with no open interest has no share,
+    exactly as a market with no multiplier has no dollar value, and neither should take
+    the other 45 down with it."""
+    out = ex.market_exposure("t", leg=ex.LEG_COMM,
+                             frame=weekly(["2026-01-06"], comm=[100.0]), symbol="TEST")
+    assert out["notional_usd"].iloc[0] == 100 * 50 * 100
+    assert pd.isna(out["oi_notional_usd"].iloc[0])
+
+
+def test_the_raw_open_interest_column_name_also_works(priced):
+    frame = weekly(["2026-01-06"], comm=[100.0])
+    frame[const.OPEN_INTEREST_XLS] = [8000.0]
+    out = ex.market_exposure("t", leg=ex.LEG_COMM, frame=frame, symbol="TEST")
+    assert out["oi_notional_usd"].iloc[0] == 8000 * 50 * 100

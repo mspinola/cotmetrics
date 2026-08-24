@@ -118,6 +118,19 @@ DEFAULT_MAX_STALENESS_DAYS = 5
 #: here claims it is one: gold and consumer prices come apart for decades at a time, and
 #: an inflation framing would invite reading a rise as real growth.
 #:
+#: **And an inflation adjustment would not help anyway, which is now measured rather than
+#: argued.** `npf/docs/analysis/2026-08-24-exposure-numeraire-levels.md` built the CPI arm
+#: this docstring's framing refuses and scored it on 43 markets: deflating by CPI moved a
+#: reader's percentile by a median of 1.1 to 2.1 points and flipped the headline band on
+#: at most 5.7% of weeks, clearing the study's bar on ZERO of nine asset classes against
+#: gold's eight. It leaves about 60% of the drift standing where gold leaves a fifth. So
+#: the refusal above costs nothing: the framing was wrong AND the adjustment is inert.
+#:
+#: What answers the drift is neither, and it is not a numeraire at all. See the share
+#: columns on `aggregate_exposure`. Stated narrowly on purpose: this is a result about
+#: CPI, not about deflators as a class. The study ran no placebo divisor and no
+#: trade-weighted dollar, so nothing here licenses "no deflator would work".
+#:
 #: A side effect worth knowing, since it is why the view is legible at all: measuring
 #: against gold happens to flatten these series a great deal, as the ratio of the last
 #: third's median absolute weekly figure to the first third's shows. That is a property
@@ -387,6 +400,23 @@ def _asof(daily: pd.Series, dates: pd.Index, max_staleness_days: int) -> pd.Seri
 
 # ── one market ────────────────────────────────────────────────────────────────
 
+def _open_interest(frame) -> "pd.Series | None":
+    """The weekly open-interest column, under whichever name this frame carries.
+
+    `CotIndexer.get_symbols_data` writes `OPEN_INTEREST`, assigning it FROM the raw
+    `OPEN_INTEREST_XLS`, so on an indexer-built frame the first name is the one that
+    exists. The second is kept because callers inject frames, and because the indexer's
+    own handling branches three ways on exactly this question, which is the evidence that
+    the name is not guaranteed. Returning None rather than raising is deliberate: a market
+    with no open interest has no share, exactly as a market with no multiplier has no
+    dollar value, and taking the other 45 down with it would be the wrong trade.
+    """
+    for column in (const.OPEN_INTEREST, const.OPEN_INTEREST_XLS):
+        if column in getattr(frame, "columns", ()):
+            return frame[column]
+    return None
+
+
 def market_exposure(name: str, *, leg: str = LEG_COMM, lookback: str = "Custom",
                     window: int = DEFAULT_VOL_WINDOW,
                     min_periods: int = DEFAULT_MIN_PERIODS,
@@ -449,6 +479,24 @@ def market_exposure(name: str, *, leg: str = LEG_COMM, lookback: str = "Custom",
     # inversely proportional to sigma, so the PRODUCT is what stays constant while it
     # sits at target, and its deviation is what says how much a vol move must force.
     out["risk_usd"] = out["notional_usd"] * out["sigma_daily"]
+
+    # The MARKET's size in the same two units, which is what turns a position into a
+    # share of it. Open interest is one side of the book, so `net / OI` is the standard
+    # OI normalisation this package already computes per market elsewhere
+    # (`COMM_PCT_OI` and friends), and these columns are that same idea carried into
+    # dollars so it can be aggregated. See `aggregate_exposure` for why that matters:
+    # summing shares is meaningless, summing the two sides and dividing is not.
+    oi = _open_interest(frame)
+    if oi is None:
+        out["oi_notional_usd"] = np.nan
+        out["oi_risk_usd"] = np.nan
+    else:
+        oi = pd.to_numeric(oi, errors="coerce").to_numpy()
+        # Non-positive open interest is not a market with no positions, it is a bad row,
+        # and it would divide into an infinite share that reads as a record crowding.
+        oi = np.where(oi > 0, oi, np.nan)
+        out["oi_notional_usd"] = oi * out["point_value"] * out["price"]
+        out["oi_risk_usd"] = out["oi_notional_usd"] * out["sigma_daily"]
     return out
 
 
@@ -462,8 +510,15 @@ class AggregateExposure(NamedTuple):
     in 2026, looks exactly like one that did neither.
     """
 
-    #: The weekly total: notional_usd, risk_usd, n_markets, sigma_weighted, and the two
-    #: expanding percentile columns. There is deliberately no contracts column; see
+    #: The weekly total: notional_usd, risk_usd, n_markets, sigma_weighted, the two
+    #: share-of-open-interest columns, and the four expanding percentile columns.
+    #:
+    #: The share columns are the set's position over the set's own open interest, in
+    #: matched units, so each is a true dimensionless share and NEITHER carries a `_usd`
+    #: suffix or a numeraire caveat: a ratio of two quantities in the same unit is the
+    #: same number in dollars and in ounces. They answer a different question from the
+    #: dollar columns, "how much of this market does the set hold" rather than "how much
+    #: money is at stake", and they fail to add information on Softs and Currencies. There is deliberately no contracts column; see
     #: `aggregate_exposure` for why the one unit that does not add across markets is
     #: absent from the frame whose whole job is adding. `sigma_weighted` is the one
     #: quantity here that is neither a sum nor a rank: it is the gross-notional-weighted
@@ -553,9 +608,13 @@ def aggregate_exposure(names, *, leg: str = LEG_COMM, lookback: str = "Custom",
             continue
         per_market[name] = ex
 
+    # Same columns AND the same ORDER as a populated frame. A caller that handles the
+    # empty case first would otherwise be written against a second schema nothing tests.
     empty = pd.DataFrame(columns=["notional_usd", "risk_usd", "n_markets",
+                                  "notional_oi_share", "risk_oi_share",
                                   "sigma_weighted", "notional_pct_rank",
-                                  "risk_pct_rank"])
+                                  "risk_pct_rank", "notional_oi_share_pct_rank",
+                                  "risk_oi_share_pct_rank"])
     if not per_market:
         return AggregateExposure(empty, dropped, {}, {}, 0, numeraire, {})
 
@@ -573,11 +632,19 @@ def aggregate_exposure(names, *, leg: str = LEG_COMM, lookback: str = "Custom",
     if divisor is not None:
         per_market = {
             name: ex.assign(**{c: ex[c] / divisor.reindex(ex.index)
-                               for c in ("notional_usd", "risk_usd")})
+                               # The open-interest columns are dollar quantities like
+                               # the other two and are deflated with them. Not cosmetic:
+                               # the share divides one by the other, so deflating only
+                               # the numerator would leave the "share" carrying 1/gold
+                               # and moving when the Gold switch moved. A test asserts
+                               # the two numeraires give identical shares.
+                               for c in ("notional_usd", "risk_usd",
+                                         "oi_notional_usd", "oi_risk_usd")})
             for name, ex in per_market.items()
         }
 
     notional, risk = _stack("notional_usd"), _stack("risk_usd")
+    oi_notional, oi_risk = _stack("oi_notional_usd"), _stack("oi_risk_usd")
     priced = notional.notna() & risk.notna()
     coverage = {n: (col[col].index.min(), col[col].index.max())
                 for n, col in priced.items() if col.any()}
@@ -588,6 +655,50 @@ def aggregate_exposure(names, *, leg: str = LEG_COMM, lookback: str = "Custom",
         "risk_usd": risk[complete].sum(axis=1),
     })
     out["n_markets"] = len(per_market)
+
+    # ── how much of the market this set holds ────────────────────────────────────────
+    #
+    # The SUMS are what get divided, never the shares. A mean of per-market shares
+    # weights orange juice equally with ES and answers a different question; dividing
+    # one sum by the other weights each market by its own size, which is the question a
+    # complex-wide view asks. On ONE market the two coincide exactly, and more than
+    # that, the whole dollar apparatus cancels: `net x pv x p / (OI x pv x p)` is
+    # `net / OI`, the plain contract share this package already computes as
+    # `COMM_PCT_OI`. That identity is asserted in the tests rather than assumed, and it
+    # is the reason this is a defensible thing to put beside the dollar columns.
+    #
+    # The denominators are matched to their numerators, so both columns are true
+    # dimensionless shares and both reduce to `net / OI` on one market (the volatility
+    # cancels in the risk pair exactly as the multiplier does). An earlier version
+    # divided dollar RISK by dollar NOTIONAL, which is a share scaled by volatility and
+    # is not a percentage of anything; see the note in the study cited below.
+    #
+    # **Numeraire-free, and that is structural rather than lucky.** A share is a ratio of
+    # two quantities in the same unit, so dividing both by the gold price leaves it
+    # unchanged. These columns therefore read identically under either numeraire, which
+    # is why they carry no `_usd` suffix and no numeraire caveat.
+    #
+    # Evidence for offering this at all, rather than a design opinion:
+    # `npf/docs/analysis/2026-08-24-exposure-numeraire-levels.md` measured it against USD,
+    # CPI-deflated dollars and gold on the full 43-market universe. It moved a reader's
+    # percentile by 10 points or more, or flipped the headline band on 10% of weeks, on
+    # 7 of 9 asset classes on BOTH units, where CPI managed 0 of 9 and gold 8 of 9 on the
+    # band-flip half of the bar alone. On drift it is the strongest of the four: Metals
+    # 24.4x to 1.8x, Fixed Income 14.1x to 1.0x.
+    #
+    # **It fails two classes and that travels with it.** Softs and Currencies do not
+    # clear on either unit, so this is not a universal improvement over reading dollars.
+    # And it removes market GROWTH rather than the price level, including the 2004 to
+    # 2006 commodity-index influx, so it answers "how crowded relative to the market"
+    # and not "how much money is at stake". Those are different questions and the dollar
+    # columns are still the right answer to the second.
+    oi_n = oi_notional[complete].sum(axis=1, min_count=len(per_market))
+    oi_r = oi_risk[complete].sum(axis=1, min_count=len(per_market))
+    # `min_count` is the whole membership on purpose. One member missing open interest
+    # would otherwise put the numerator over ALL markets above a denominator over the
+    # rest, inflating the share with nothing in the frame to say so.
+    out["notional_oi_share"] = out["notional_usd"] / oi_n.where(oi_n > 0)
+    out["risk_oi_share"] = out["risk_usd"] / oi_r.where(oi_r > 0)
 
     # The volatility of what the set is HOLDING, weighted by how much of it is held.
     #
@@ -618,6 +729,10 @@ def aggregate_exposure(names, *, leg: str = LEG_COMM, lookback: str = "Custom",
                                                  min_rank_periods)
     out["risk_pct_rank"] = windowed_pct_rank(out["risk_usd"], rank_window,
                                              min_rank_periods)
+    out["notional_oi_share_pct_rank"] = windowed_pct_rank(
+        out["notional_oi_share"], rank_window, min_rank_periods)
+    out["risk_oi_share_pct_rank"] = windowed_pct_rank(
+        out["risk_oi_share"], rank_window, min_rank_periods)
 
     # Which market sets each end, and only where it costs weeks the others could have
     # filled. A market that merely starts latest is named at "start" only if some other
