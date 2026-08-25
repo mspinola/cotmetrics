@@ -1,4 +1,5 @@
 import logging
+import os
 from pathlib import Path
 from typing import Optional
 
@@ -8,19 +9,88 @@ import yfinance as yf
 
 import cotmetrics.constants as const
 
+logger = logging.getLogger(__name__)
 
-def _options_cache_dir() -> Path:
-    """Where option snapshots live, for both readers and writers.
+#: The per-symbol history filename, as both a writer target and a "is there anything
+#: here?" probe. One pattern so the two can never drift.
+HISTORY_GLOB = "*_options_history.parquet"
 
-    Under CACHE_DIR like every other derived cache. It was previously written to a path
-    anchored to the package (`__file__/../../../data_cache`) and read from a cwd-relative
-    `data_cache/options`, which are two different directories: snapshots landed where
-    nothing read them, and a reader started from any other directory silently reported
-    "no options data" instead of failing. constants.py says it directly -- as an
-    installed package we cannot anchor to a repo root.
+
+def _legacy_options_dir() -> Path:
+    """Where the history lived before it had a constant of its own: under CACHE_DIR.
+
+    Kept as a READ fallback only. See `options_history_dir` for why it cannot simply
+    be dropped.
     """
     return Path(const.CACHE_DIR) / "options"
-logger = logging.getLogger(__name__)
+
+
+def _holds_history(directory: Path) -> bool:
+    return directory.is_dir() and any(directory.glob(HISTORY_GLOB))
+
+
+#: Paths already named in a location warning. The reader resolves once PER SYMBOL, so
+#: an unthrottled warning is ~24 identical lines every time the Signal Matrix renders.
+#: That volume is not harmless: a real traceback on this deployment was once buried
+#: under exactly this kind of repeated line. Once per path per process is enough to act
+#: on, and `clear()` keeps it testable.
+_WARNED_PATHS: set = set()
+
+
+def _warn_once(key, message, *args) -> None:
+    if key in _WARNED_PATHS:
+        return
+    _WARNED_PATHS.add(key)
+    logger.warning(message, *args)
+
+
+def options_history_dir() -> Path:
+    """Where option snapshots live, for both readers and writers.
+
+    NOT a cache, despite where it used to sit. Each run appends the current live chain
+    to a permanent per-symbol history and yfinance serves only today's chain, so a
+    deleted day is gone for good. `constants.OPTIONS_DIR` carries the full reasoning;
+    it defaults under the XDG *data* dir alongside the citpy notes and the visitor DB,
+    the other two durable things that must not sit under a cache root.
+
+    Resolution deliberately prefers an EXISTING history over a tidy default, because
+    the failure this function already has a scar from is a silent one. From the test
+    module's own docstring: snapshots once "landed where nothing read them", and the
+    symptom was Max Pain quietly empty for 22 of 24 symbols rather than an error. Moving
+    the default without a fallback would reproduce that exactly -- the old history
+    orphaned, a new one accumulating beside it, and nothing on screen saying so.
+
+      1. COTMETRICS_OPTIONS set -> honour it, no guessing.
+      2. the new location already holds a history -> use it.
+      3. only the legacy location does -> use it, and say so once per process.
+      4. neither -> the new location. A fresh install starts in the right place.
+    """
+    new = Path(const.OPTIONS_DIR)
+    legacy = _legacy_options_dir()
+    if os.environ.get("COTMETRICS_OPTIONS"):
+        return new
+    if _holds_history(new):
+        if _holds_history(legacy):
+            # Both populated. Prefer the new one (it is the configured default) but do
+            # not let the other rot unmentioned: whichever the daily job last appended
+            # to is the complete one, and only an operator can say which that is.
+            _warn_once(
+                ("both", new, legacy),
+                "Options history exists in BOTH %s and %s. Reading the first. The "
+                "second is not being appended to and is not merged automatically; "
+                "reconcile them by hand, since only you can tell which run wrote which.",
+                new, legacy)
+        return new
+    if _holds_history(legacy):
+        _warn_once(
+            ("legacy", legacy),
+            "Options max-pain history is still at the legacy path %s, which sits under "
+            "the derived-cache root and is not safe there (clearing the cache would "
+            "destroy it permanently -- yfinance cannot refetch past chains). Reading it "
+            "from there for now. Migrate with:  mv %s %s",
+            legacy, legacy, new)
+        return legacy
+    return new
 
 # Map CME futures symbols to their most liquid ETF proxy for options data
 ETF_PROXIES = {
@@ -225,9 +295,10 @@ def build_daily_options_snapshot(futures_symbol: str, live_futures_price: float 
         scaled_max_pain = max_pain * ratio
         scaled_underlying = underlying_price * ratio
 
-        # We save this snapshot into data_cache/options
-
-        cache_dir = _options_cache_dir()
+        # Appended to the permanent per-symbol history. See `options_history_dir`:
+        # this is accumulated data, not a cache, and today's chain is the only one
+        # yfinance will ever serve.
+        cache_dir = options_history_dir()
         cache_dir.mkdir(parents=True, exist_ok=True)
 
         # Build the snapshot dataframe using the actual market quote date
@@ -283,7 +354,7 @@ def get_max_pain_for_symbol(futures_symbol: str, target_date=None) -> Optional[f
             return cached_data
 
     try:
-        filepath = _options_cache_dir() / f"{futures_symbol}_options_history.parquet"
+        filepath = options_history_dir() / f"{futures_symbol}_options_history.parquet"
         if not filepath.exists():
             return None
 
