@@ -132,10 +132,15 @@ def get_board(asset_classes=None, lookback="Custom", target_date=None, filter_ty
               model=None):
     """Every market's latest row, as the one sweep both Home page strips read.
 
-    Returns an unordered list of dicts, one per market with usable data. `delta`,
-    `multiple` and `caption` are None where the Commercial index did not move or the
-    frame is too short to scale the move against -- selection is the caller's job, and a
-    row with no move is still a row with a setup state.
+    Returns an unordered list of dicts, one per market with usable data. `multiple`
+    and `caption` are None where the Commercial index did not move or the frame is too
+    short to scale the move against -- selection is the caller's job, and a row with no
+    move is still a row with a setup state.
+
+    The three `*_delta` fields are None ONLY when the frame has no reading. A market
+    that genuinely did not move carries 0, which is a different fact and one a view
+    that renders the number has to be able to tell apart. Both selectors filter on
+    truthiness, so 0 and None still behave alike for ranking.
 
     That last point is why the sweep does not drop zero-delta rows itself, as the movers
     ranking used to. A market pinned at an extreme with no Commercial move this week is
@@ -193,9 +198,15 @@ def get_board(asset_classes=None, lookback="Custom", target_date=None, filter_ty
             if idx is None or pd.isna(idx):
                 continue
 
-            delta = latest.get(const.COMM_WOW)
-            if delta is None or pd.isna(delta) or delta == 0:
-                delta = None
+            # ZERO IS A READING AND IS KEPT AS 0. This used to collapse a zero move
+            # into None alongside a NaN, which was fine while the only consumer was
+            # rank_movers -- it drops both on truthiness anyway -- and wrong for any
+            # view that RENDERS the number, because "did not move" and "no prior week
+            # to compare" then arrive identically and draw identically. A card showing
+            # nothing for a market pinned at an extreme reads as missing data, and
+            # this function's own docstring calls that market the most interesting
+            # kind of setup. None now means only "no reading".
+            delta = _leg(latest.get(const.COMM_WOW))
 
             symbol = get_indexer().get_instrument_symbol_from_name(asset)
             if wanted_biases is not None:
@@ -226,8 +237,19 @@ def get_board(asset_classes=None, lookback="Custom", target_date=None, filter_ty
                 # separate fields is what let them drift apart in the first place.
                 "lrg_index": _leg(latest.get(lrg_col)),
                 "sml_index": _leg(latest.get(sml_col)),
+                # Each leg's own week-over-week move, so a view can put a delta beside
+                # every leg it draws rather than only beside Commercials. Read from
+                # the basis-independent WoW aliases, the same ones `delta` above uses,
+                # so all three move together when the basis does. They are NOT gated
+                # by model.spec_legs here: the sweep reports what the frame holds and
+                # the view decides which legs it draws, exactly as the index legs
+                # above already work.
+                "lrg_delta": _leg(latest.get(const.LRG_WOW)),
+                "sml_delta": _leg(latest.get(const.SML_WOW)),
                 "is_equity": is_equity,
-                "caption": _caption(idx, delta) if delta is not None else None,
+                # `if delta` rather than `is not None`: _caption picks its verb from
+                # the sign, so a zero move would be described as "Dropped".
+                "caption": _caption(idx, delta) if delta else None,
             })
 
     return rows
