@@ -1,9 +1,12 @@
 """The Home page board: the WoW index delta, the caption built on it, and the two
 selectors that read one sweep.
 
-Only the pure parts are covered here. get_board itself walks cotIndexer, which needs a
-populated COTDATA_STORE, so it stays out of the hermetic suite. The selectors are pure
-functions over its output, so they are tested directly against hand-built rows.
+No test here needs a store. The selectors are pure functions over the sweep's output,
+so they are tested directly against hand-built rows. get_board itself walks cotIndexer,
+which would need a populated COTDATA_STORE, so the last section substitutes a stub
+indexer over one hand-built frame -- that covers the row-building half, which is where
+the distinctions each field carries actually live. What a real store would add is
+coverage of the walk, not of the rows.
 """
 import inspect
 
@@ -11,6 +14,7 @@ import pandas as pd
 import pytest
 
 import cotmetrics.constants as const
+import cotmetrics.models as models
 from cotmetrics.indicators import calculate_momentum_index
 from cotmetrics.movers import (
     FILTER_BEAR,
@@ -301,3 +305,99 @@ def test_the_caption_ladder_stays_fixed_across_models():
     assert list(inspect.signature(_caption).parameters) == ["idx", "delta"]
     for idx, expected in ((96, "top"), (85, "high end"), (50, "mid-range")):
         assert expected in _caption(idx, 5)
+
+
+# ── what the sweep reports, over a stub indexer ───────────────────────────────
+#
+# get_board walks the indexer, which is why the module docstring keeps it out of the
+# hermetic suite. Substituting the indexer brings the row-building half of it back in,
+# and that half is where the distinction below lives. Nothing here needs a store.
+
+class _StubIndexer:
+    """Every indexer call get_board makes, over one hand-built frame."""
+
+    def __init__(self, frame):
+        self._frame = frame
+
+    def get_asset_classes(self):
+        return ["Testables"]
+
+    def get_assets_for_asset_class(self, asset_class):
+        return ["Quiet"]
+
+    def get_symbols_data(self, asset, lookback, basis):
+        return self._frame
+
+    def get_instrument_symbol_from_name(self, asset):
+        return "QT"
+
+    def is_equity(self, asset):
+        return False
+
+
+def _swept(monkeypatch, comm_wow, lrg_wow=4.0, sml_wow=-6.0, model=None):
+    """The single board row for a market whose legs moved by the given amounts."""
+    model = model or models.resolve(None)
+    comm_col, lrg_col, sml_col = model.leg_columns("Custom")
+    frame = pd.DataFrame(
+        {
+            const.COMMS_IDX: [98.0, 100.0],
+            comm_col: [98.0, 100.0],
+            lrg_col: [10.0, 6.0],
+            sml_col: [9.0, 3.0],
+            const.COMM_WOW: [0.0, comm_wow],
+            const.LRG_WOW: [0.0, lrg_wow],
+            const.SML_WOW: [0.0, sml_wow],
+        },
+        index=pd.to_datetime(["2026-08-11", "2026-08-18"]),
+    )
+    monkeypatch.setattr("cotmetrics.movers.get_indexer", lambda: _StubIndexer(frame))
+    rows = get_board(model=model)
+    assert len(rows) == 1
+    return rows[0]
+
+
+def test_a_market_that_did_not_move_carries_zero_rather_than_none(monkeypatch):
+    """The regression: a genuinely motionless week arrived identical to a market with
+    no prior week to compare against, because the sweep collapsed both to None.
+
+    That was invisible while rank_movers was the only consumer -- it drops 0 and None
+    alike on truthiness -- and wrong the moment a view RENDERED the number, which the
+    setups cards now do. A blank where a market is pinned at an extreme and quiet reads
+    as missing data, and this function's own docstring calls that the most interesting
+    kind of setup.
+    """
+    assert _swept(monkeypatch, 0.0)["delta"] == 0
+
+
+def test_no_reading_is_still_none(monkeypatch):
+    """The other half of the distinction: None now means only "the frame has no value"."""
+    assert _swept(monkeypatch, float("nan"))["delta"] is None
+
+
+def test_a_motionless_week_gets_no_caption(monkeypatch):
+    """_caption picks its verb from the sign, so a zero move would read as "Dropped"."""
+    assert _swept(monkeypatch, 0.0)["caption"] is None
+    assert _swept(monkeypatch, -7.0)["caption"].startswith("Dropped")
+
+
+def test_zero_and_none_still_rank_alike(monkeypatch):
+    """Keeping the two apart in the row must not change either selector. Both filter on
+    truthiness, so a motionless market is still not a mover and is still a setup."""
+    quiet = _swept(monkeypatch, 0.0)
+    assert rank_movers([quiet]) == []
+    assert [r["asset"] for r in select_setups([quiet])] == ["Quiet"]
+
+
+def test_every_leg_carries_its_own_delta(monkeypatch):
+    """A card that draws three legs needs three moves. The specs read the same
+    basis-independent WoW aliases the Commercial delta does, so all three follow the
+    basis together, and they are reported ungated: which legs get drawn is the view's
+    decision, exactly as the leg indices above them already work."""
+    row = _swept(monkeypatch, 3.0, lrg_wow=4.4, sml_wow=-6.6)
+    assert (row["delta"], row["lrg_delta"], row["sml_delta"]) == (3, 4, -7)
+
+
+def test_a_leg_with_no_reading_does_not_borrow_another(monkeypatch):
+    row = _swept(monkeypatch, 3.0, lrg_wow=float("nan"))
+    assert row["lrg_delta"] is None and row["sml_delta"] == -6
