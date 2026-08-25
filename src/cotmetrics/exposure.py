@@ -390,8 +390,16 @@ def _asof(daily: pd.Series, dates: pd.Index, max_staleness_days: int) -> pd.Seri
     """
     if daily.empty:
         return pd.Series(np.nan, index=dates, dtype="float64")
-    left = pd.DataFrame({"when": pd.to_datetime(dates)}).sort_values("when")
-    right = pd.DataFrame({"when": daily.index, "value": daily.to_numpy()})
+    # Both sides forced to the same resolution. A cached weekly frame can carry
+    # whatever timestamp unit was baked into its parquet at write time (`us` from an
+    # older pyarrow, say), while a freshly-computed daily series is `ns`. pandas 2.x
+    # raises on a mismatched merge key rather than silently upcasting, so mismatched
+    # inputs anywhere upstream turn into a MergeError here instead of a wrong answer.
+    # Normalizing at the merge is the one choke point every caller goes through.
+    left = pd.DataFrame(
+        {"when": pd.to_datetime(dates).astype("datetime64[ns]")}).sort_values("when")
+    right = pd.DataFrame({"when": pd.to_datetime(daily.index).astype("datetime64[ns]"),
+                          "value": daily.to_numpy()})
     merged = pd.merge_asof(
         left, right, on="when", direction="backward",
         tolerance=pd.Timedelta(days=max_staleness_days))
