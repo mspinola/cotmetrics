@@ -28,6 +28,18 @@ CITPY_DIR = os.environ.get("COTMETRICS_CITPY", str(Path(_DATA_HOME) / "cotmetric
 # at this editable install. Honors COTMETRICS_DB.
 DB_PATH = os.environ.get("COTMETRICS_DB", str(Path(_DATA_HOME) / "cotmetrics" / "cot_data.db"))
 
+# Daily options max-pain snapshots. The THIRD thing to follow the CITPY rule above,
+# and the one that most looks like a cache without being one: each run appends that
+# day's live option chain to a permanent per-symbol history. yfinance serves only the
+# CURRENT chain, so a deleted day cannot be refetched from anywhere — the history is
+# accumulated, not derived, and `rm -rf` on it is unrecoverable data loss rather than
+# a slow next request. It lived under CACHE_DIR/options until this constant existed,
+# which is exactly the sort of path an operator (or a runbook, or an assistant
+# debugging something unrelated) clears to force a rebuild. Honors COTMETRICS_OPTIONS.
+OPTIONS_DIR = os.environ.get(
+    "COTMETRICS_OPTIONS", str(Path(_DATA_HOME) / "cotmetrics" / "options")
+)
+
 # Derived-metrics cache version. The per-symbol cache guards key on *column
 # presence*, and the cotdata schema marker only moves when the upstream store
 # changes — so neither can see a value-only change in our own indicator logic

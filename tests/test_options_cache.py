@@ -24,7 +24,7 @@ def cache(tmp_path, monkeypatch):
     """Point both sides of the module at a scratch directory."""
     d = tmp_path / "options"
     d.mkdir()
-    monkeypatch.setattr(od, "_options_cache_dir", lambda: d)
+    monkeypatch.setattr(od, "options_history_dir", lambda: d)
     od._MAX_PAIN_CACHE.clear()
     yield d
     od._MAX_PAIN_CACHE.clear()
@@ -44,21 +44,92 @@ def _snapshot(date, underlying, n=5):
 
 # ── one directory, resolved the same way on both sides ────────────────────────
 
-def test_cache_dir_lives_under_the_shared_cache_root(monkeypatch, tmp_path):
-    """Not anchored to the package: constants.py says an installed package cannot
-    assume a repo root, and the writer used to do exactly that."""
-    monkeypatch.setattr(const, "CACHE_DIR", str(tmp_path))
-    assert od._options_cache_dir() == tmp_path / "options"
+@pytest.fixture
+def dirs(monkeypatch, tmp_path):
+    """A scratch pair: the durable location and the legacy under-cache one.
+
+    Neither is created. Which of them exists, and which holds a history, is the whole
+    subject of the tests below.
+    """
+    monkeypatch.delenv("COTMETRICS_OPTIONS", raising=False)
+    monkeypatch.setattr(const, "CACHE_DIR", str(tmp_path / "cache"))
+    monkeypatch.setattr(const, "OPTIONS_DIR", str(tmp_path / "data" / "options"))
+    od._WARNED_PATHS.clear()
+    yield tmp_path / "data" / "options", tmp_path / "cache" / "options"
+    od._WARNED_PATHS.clear()
 
 
-def test_cache_dir_does_not_depend_on_cwd(monkeypatch, tmp_path):
+def _seed(directory):
+    directory.mkdir(parents=True, exist_ok=True)
+    _snapshot("2026-07-14", 100.0).to_parquet(directory / "GC_options_history.parquet")
+
+
+def test_history_does_not_default_under_the_cache_root(dirs):
+    """The point of the constant. The daily job APPENDS the live chain to a permanent
+    history and yfinance serves only today's chain, so anything sitting under a
+    derived-cache root is one `rm -rf` from unrecoverable."""
+    new, legacy = dirs
+    assert od.options_history_dir() == new
+    assert legacy not in od.options_history_dir().parents
+
+
+def test_an_existing_legacy_history_is_still_read(dirs):
+    """Moving the default without a fallback would orphan every deployment that
+    already has one, and the symptom would be Max Pain quietly empty rather than an
+    error -- the exact silent failure this module's docstring records."""
+    new, legacy = dirs
+    _seed(legacy)
+    assert od.options_history_dir() == legacy
+
+
+def test_the_new_location_wins_once_it_holds_the_history(dirs):
+    """After the operator moves it, resolution follows without further configuration."""
+    new, legacy = dirs
+    _seed(new)
+    assert od.options_history_dir() == new
+
+
+def test_an_explicit_env_var_is_honoured_over_both(dirs, monkeypatch, tmp_path):
+    """Explicit beats inferred: with COTMETRICS_OPTIONS set there is nothing to guess,
+    and a populated legacy directory must not silently override the operator."""
+    new, legacy = dirs
+    _seed(legacy)
+    chosen = tmp_path / "elsewhere"
+    monkeypatch.setenv("COTMETRICS_OPTIONS", str(chosen))
+    monkeypatch.setattr(const, "OPTIONS_DIR", str(chosen))
+    assert od.options_history_dir() == chosen
+
+
+def test_a_history_in_both_places_is_reported(dirs, caplog):
+    """Whichever the daily job last appended to is the complete one, and only an
+    operator can say which. Preferring one silently would hide a split history."""
+    new, legacy = dirs
+    _seed(new)
+    _seed(legacy)
+    with caplog.at_level("WARNING"):
+        assert od.options_history_dir() == new
+    assert "BOTH" in caplog.text
+
+
+def test_the_legacy_warning_does_not_repeat_per_symbol(dirs, caplog):
+    """The reader resolves once per symbol, so an unthrottled warning is ~24 identical
+    lines every Signal Matrix render. That volume is not cosmetic: a real traceback on
+    this deployment was once buried under exactly this kind of repeated line."""
+    new, legacy = dirs
+    _seed(legacy)
+    with caplog.at_level("WARNING"):
+        for _ in range(24):
+            od.options_history_dir()
+    assert caplog.text.count("legacy path") == 1
+
+
+def test_history_dir_does_not_depend_on_cwd(dirs, monkeypatch, tmp_path):
     """The reader used to use a relative path, so from any other directory it reported
     "no options data" instead of failing -- a silent wrong answer."""
-    monkeypatch.setattr(const, "CACHE_DIR", str(tmp_path))
-    before = od._options_cache_dir()
+    before = od.options_history_dir()
     monkeypatch.chdir(tmp_path)
-    assert od._options_cache_dir() == before
-    assert od._options_cache_dir().is_absolute()
+    assert od.options_history_dir() == before
+    assert od.options_history_dir().is_absolute()
 
 
 # ── the read guard ────────────────────────────────────────────────────────────
