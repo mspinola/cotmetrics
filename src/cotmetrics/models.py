@@ -115,6 +115,46 @@ class PositioningModel:
         comm, lrg, sml = (row.get(c) for c in self.leg_columns(lookback))
         return self.setup_state(comm, lrg, sml, is_equity)
 
+    def setup_age_from(self, frame, lookback, is_equity=False,
+                       cap=const.SETUP_AGE_CAP):
+        """How many consecutive weeks the last row of `frame` has held its story.
+
+        0 when that row is not at or approaching a gate. Otherwise the count of weeks,
+        walking back, that stayed in the SAME DIRECTION at THIS TIER OR STRONGER. So a
+        market that spent five weeks approaching a bull gate and fired this week reads
+        1, because its setup is one week old; a market that fired eight weeks ago and
+        has since relaxed to approaching reads 9, because it has been telling the same
+        story throughout. The badge already says which tier it is in now, and this says
+        how long it has been there or better.
+
+        The alternative -- counting any non-neutral week, so NEAR and SETUP are one run
+        -- was rejected because it makes a setup that fired this week read as six weeks
+        old, and "is this new" is the question the number exists to answer.
+
+        `cap` bounds the walk rather than the answer, and a capped count is returned as
+        the cap, so a view displaying the number reads `const.SETUP_AGE_CAP` as "at
+        least". See that constant for why it sits where it does.
+        """
+        if frame is None or len(frame) == 0:
+            return 0
+        state = self.setup_state_from(frame.iloc[-1], lookback, is_equity)
+        if state == const.SETUP_NONE:
+            return 0
+        bullish = state in (const.SETUP_BULL, const.SETUP_NEAR_BULL)
+        same_direction = ((const.SETUP_BULL, const.SETUP_NEAR_BULL) if bullish
+                          else (const.SETUP_BEAR, const.SETUP_NEAR_BEAR))
+        # A full state also counts for a near row, which is the "or stronger" half.
+        wanted = (same_direction if state in const.SETUP_NEAR_STATES
+                  else (same_direction[0],))
+        weeks = 0
+        for i in range(len(frame) - 1, -1, -1):
+            if self.setup_state_from(frame.iloc[i], lookback, is_equity) not in wanted:
+                break
+            weeks += 1
+            if weeks >= cap:
+                break
+        return weeks
+
     def _legs(self, lrg_idx, sml_idx):
         """The legs this model's gate actually uses, in a fixed order."""
         available = {LEG_LARGE: lrg_idx, LEG_SMALL: sml_idx}
