@@ -335,7 +335,8 @@ class _StubIndexer:
         return False
 
 
-def _swept(monkeypatch, comm_wow, lrg_wow=4.0, sml_wow=-6.0, model=None):
+def _swept(monkeypatch, comm_wow, lrg_wow=4.0, sml_wow=-6.0, model=None,
+           target_date=None):
     """The single board row for a market whose legs moved by the given amounts."""
     model = model or models.resolve(None)
     comm_col, lrg_col, sml_col = model.leg_columns("Custom")
@@ -352,7 +353,7 @@ def _swept(monkeypatch, comm_wow, lrg_wow=4.0, sml_wow=-6.0, model=None):
         index=pd.to_datetime(["2026-08-11", "2026-08-18"]),
     )
     monkeypatch.setattr("cotmetrics.movers.get_indexer", lambda: _StubIndexer(frame))
-    rows = get_board(model=model)
+    rows = get_board(model=model, target_date=target_date)
     assert len(rows) == 1
     return rows[0]
 
@@ -401,3 +402,17 @@ def test_every_leg_carries_its_own_delta(monkeypatch):
 def test_a_leg_with_no_reading_does_not_borrow_another(monkeypatch):
     row = _swept(monkeypatch, 3.0, lrg_wow=float("nan"))
     assert row["lrg_delta"] is None and row["sml_delta"] == -6
+
+
+def test_the_row_carries_how_long_the_market_has_been_at_its_gate(monkeypatch):
+    """The setups badge draws this. Both rows of the fixture frame are bull setups, so
+    the market has been telling one story for two weeks."""
+    row = _swept(monkeypatch, 2.0)
+    assert row["setup"] == const.SETUP_BULL
+    assert row["setup_weeks"] == 2
+
+
+def test_a_dated_read_ages_as_of_that_date(monkeypatch):
+    """A board asked about a past week must answer as that week. Counting back from the
+    frame's last row instead would report a run that had not happened yet."""
+    assert _swept(monkeypatch, 2.0, target_date="2026-08-11")["setup_weeks"] == 1

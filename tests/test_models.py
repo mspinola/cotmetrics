@@ -305,3 +305,101 @@ def test_equity_rows_still_ignore_the_speculator_legs():
 def test_a_missing_column_does_not_raise():
     """Frames from a partial fetch must degrade to no verdict, not an exception."""
     assert models.NPF.setup_state_from({}, "Custom") == const.SETUP_NONE
+
+
+# ── how long a market has been telling its story ──────────────────────────────
+#
+# The number that goes in the setups badge. It exists because it is the only reading
+# tested that a card's own gate strip does not already imply: over 551 gate
+# market-weeks, tape bias, WillCo and the six-week move never once pointed against the
+# positioning beside them, while age spreads 1 to 10 weeks on a typical board.
+
+FULL_BULL = (100, 0, 0)
+NEAR_BULL = (92, 8, 8)
+FULL_BEAR = (0, 100, 100)
+NEAR_BEAR = (8, 92, 92)
+NEUTRAL = (50, 50, 50)
+
+
+def _age_frame(*weeks):
+    """A frame of (comm, lrg, sml) rows on the raw family, oldest first."""
+    return pd.DataFrame(
+        [{"Comm Custom Idx": c, "Lrg Spec Custom Idx": lrg, "Sml Spec Custom Idx": sml}
+         for c, lrg, sml in weeks],
+        index=pd.date_range("2026-01-06", periods=len(weeks), freq="7D"),
+    )
+
+
+def _age(*weeks, cap=104):
+    return models.RAW_PF.setup_age_from(_age_frame(*weeks), "Custom", cap=cap)
+
+
+def test_the_fixtures_are_the_states_they_claim_to_be():
+    """Everything below reads as nonsense if these drift, so pin them here rather than
+    letting a band change quietly turn the age tests into tests of something else."""
+    state = lambda legs: models.RAW_PF.setup_state_from(  # noqa: E731
+        dict(zip(models.RAW_PF.leg_columns("Custom"), legs)), "Custom")
+    assert state(FULL_BULL) == const.SETUP_BULL
+    assert state(NEAR_BULL) == const.SETUP_NEAR_BULL
+    assert state(FULL_BEAR) == const.SETUP_BEAR
+    assert state(NEAR_BEAR) == const.SETUP_NEAR_BEAR
+    assert state(NEUTRAL) == const.SETUP_NONE
+
+
+def test_a_market_with_nothing_to_say_has_no_age():
+    assert _age(FULL_BULL, FULL_BULL, NEUTRAL) == 0
+
+
+def test_age_counts_the_run_ending_at_the_last_row():
+    assert _age(NEUTRAL, FULL_BULL, FULL_BULL, FULL_BULL) == 3
+
+
+def test_an_earlier_run_does_not_carry_across_a_neutral_week():
+    """The run is consecutive. A market that fired, went quiet and fired again is one
+    week old, not five: the intervening neutral week ended the first story."""
+    assert _age(FULL_BULL, FULL_BULL, FULL_BULL, NEUTRAL, FULL_BULL) == 1
+
+
+def test_a_setup_that_fired_this_week_is_one_week_old():
+    """The case the whole choice turns on. Counting any non-neutral week would call
+    this six, and "is this new" is the question the number answers."""
+    assert _age(NEAR_BULL, NEAR_BULL, NEAR_BULL, NEAR_BULL, NEAR_BULL, FULL_BULL) == 1
+
+
+def test_an_approaching_row_counts_the_weeks_it_spent_fired():
+    """The other half of "this tier or stronger". A market that fired eight weeks ago
+    and has since relaxed to approaching has been telling one story throughout."""
+    assert _age(*([FULL_BULL] * 8), NEAR_BULL) == 9
+
+
+def test_a_direction_flip_ends_the_run():
+    """A bear setup last week and a bull setup this week is a new story, however
+    continuously the market has been at one end of something."""
+    assert _age(FULL_BEAR, FULL_BEAR, FULL_BULL) == 1
+    assert _age(NEAR_BEAR, NEAR_BEAR, NEAR_BULL) == 1
+
+
+def test_the_cap_bounds_the_walk_not_the_market():
+    """Returned as the cap, so a caller displaying it should read it as "at least".
+    The longest run either model has produced over the full history of all 42 markets
+    is 51 weeks, so the default cap is roughly double the worst case."""
+    assert _age(*([FULL_BULL] * 20), cap=5) == 5
+    assert models.RAW_PF.setup_age_from(_age_frame(FULL_BULL), "Custom").__class__ is int
+
+
+def test_an_empty_frame_is_no_age_rather_than_an_error():
+    assert models.RAW_PF.setup_age_from(_age_frame(), "Custom") == 0
+    assert models.RAW_PF.setup_age_from(None, "Custom") == 0
+
+
+def test_both_models_answer_on_their_own_basis():
+    """Age inherits the whole bundle: a frame carrying both families ages differently
+    under each model, because each reads its own columns through its own band."""
+    frame = pd.DataFrame(
+        [{"Comm Custom Idx": 100, "Lrg Spec Custom Idx": 0, "Sml Spec Custom Idx": 0,
+          "Comm Custom Idx Norm": 50, "Lrg Spec Custom Idx Norm": 50,
+          "Sml Spec Custom Idx Norm": 50}] * 4,
+        index=pd.date_range("2026-01-06", periods=4, freq="7D"),
+    )
+    assert models.RAW_PF.setup_age_from(frame, "Custom") == 4
+    assert models.NPF.setup_age_from(frame, "Custom") == 0

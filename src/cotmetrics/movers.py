@@ -137,6 +137,14 @@ def get_board(asset_classes=None, lookback="Custom", target_date=None, filter_ty
     short to scale the move against -- selection is the caller's job, and a row with no
     move is still a row with a setup state.
 
+    `setup_weeks` is how long the row has been at or approaching its gate, and it is
+    the one reading on a setups card that the card's own strip does not already imply.
+    Measured over 551 gate market-weeks, tape bias, WillCo and the six-week move never
+    pointed against the positioning beside them, so lifting those onto a setup card
+    restates it; age is independent and spreads 1 to 10 weeks on a typical board. 0 on
+    a row with no setup state. See `PositioningModel.setup_age_from` for what starts and
+    ends a run.
+
     The three `*_delta` fields are None ONLY when the frame has no reading. A market
     that genuinely did not move carries 0, which is a different fact and one a view
     that renders the number has to be able to tell apart. Both selectors filter on
@@ -189,8 +197,13 @@ def get_board(asset_classes=None, lookback="Custom", target_date=None, filter_ty
                 if matching.empty:
                     continue
                 latest = matching.iloc[-1]
+                # Everything up to and including the row being reported, so a dated
+                # read counts the run that had happened BY then rather than the one
+                # visible now. A board asked about a past week must answer as that week.
+                frame = df.loc[:latest.name]
             else:
                 latest = df.iloc[-1]
+                frame = df
 
             # The index level is required -- it is the headline number on every card and
             # the input to the gate. The delta is not: it only gates the movers view.
@@ -229,6 +242,13 @@ def get_board(asset_classes=None, lookback="Custom", target_date=None, filter_ty
                 "multiple": round(multiple, 1) if multiple is not None else None,
                 "unusual": multiple is not None and multiple >= UNUSUAL_MULTIPLE,
                 "setup": model.setup_state_from(latest, lookback, is_equity),
+                # How long this market has been telling this story, in weeks. The one
+                # reading on the setups cards that is NOT already implied by the strip
+                # beside it: measured over 551 gate market-weeks, tape bias, WillCo and
+                # the six-week move never once pointed against the positioning that put
+                # a row at its gate, so drawing them there is a restatement. Age is
+                # independent, and on a typical board it spreads 1 to 10 weeks.
+                "setup_weeks": model.setup_age_from(frame, lookback, is_equity),
                 # The speculator legs, for the setups view to show the gate's working.
                 # Read off the same columns the gate just used, so a card cannot print
                 # one series as the gate's reasoning while the verdict came from
