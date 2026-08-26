@@ -115,7 +115,8 @@ class PositioningModel:
         comm, lrg, sml = (row.get(c) for c in self.leg_columns(lookback))
         return self.setup_state(comm, lrg, sml, is_equity)
 
-    def setup_age_from(self, frame, lookback, is_equity=False, cap=104):
+    def setup_age_from(self, frame, lookback, is_equity=False,
+                       cap=const.SETUP_AGE_CAP):
         """How many consecutive weeks the last row of `frame` has held its story.
 
         0 when that row is not at or approaching a gate. Otherwise the count of weeks,
@@ -130,12 +131,9 @@ class PositioningModel:
         -- was rejected because it makes a setup that fired this week read as six weeks
         old, and "is this new" is the question the number exists to answer.
 
-        `cap` bounds the walk rather than the answer. Measured over the full history of
-        all 42 markets, the longest run either model has ever produced is 51 weeks
-        (Palladium under NPF), so the cap is roughly double the worst case and exists so
-        a market pinned indefinitely cannot turn a card render into a full-history scan.
-        A capped count is returned as the cap, which is why callers that display it
-        should treat the cap as "at least".
+        `cap` bounds the walk rather than the answer, and a capped count is returned as
+        the cap, so a view displaying the number reads `const.SETUP_AGE_CAP` as "at
+        least". See that constant for why it sits where it does.
         """
         if frame is None or len(frame) == 0:
             return 0

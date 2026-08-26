@@ -410,6 +410,13 @@ SETUP_BEAR = "bear"
 SETUP_NEAR_BULL = "near_bull"
 SETUP_NEAR_BEAR = "near_bear"
 
+# How far back a setup-age walk will count. Bounds the WALK, not the market: the
+# longest run either model has produced over the full history of all 42 markets is 51
+# weeks, so this is roughly double the worst case and exists so a market pinned
+# indefinitely cannot turn a card render into a full-history scan. A count that reaches
+# it is returned as it, so a view displaying the number reads this value as "at least".
+SETUP_AGE_CAP = 104
+
 SETUP_FULL_STATES = (SETUP_BULL, SETUP_BEAR)
 SETUP_NEAR_STATES = (SETUP_NEAR_BULL, SETUP_NEAR_BEAR)
 
