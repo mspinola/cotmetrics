@@ -60,18 +60,84 @@ class CotDatabase:
                 c.execute(f'ALTER TABLE ml_predictions_v2 ADD COLUMN {col} {col_type}')
             except sqlite3.OperationalError:
                 pass
+
+        # Visitor-tracking columns added in 0.10.0, same additive pattern as above so
+        # a deployed database migrates in place on the first boot after an upgrade.
+        # `kind` separates a document load ('landing', the only kind the pre-0.10.0
+        # rows were, which is why NULL means landing) from a client-side navigation
+        # ('pageview'): Dash is a single-page app, so only the former is an HTTP GET
+        # and counting page popularity off GETs alone sees entry pages only.
+        for col, col_type in [('kind', 'TEXT'), ('visitor_id', 'TEXT'),
+                              ('is_bot', 'INTEGER'), ('referrer', 'TEXT')]:
+            try:
+                c.execute(f'ALTER TABLE visitor_logs ADD COLUMN {col} {col_type}')
+            except sqlite3.OperationalError:
+                pass
+
+        # One geolocation result per IP, so the consumer asks ip-api.com about an
+        # address once rather than on every request it makes. No expiry: city-level
+        # IP geography moves on a timescale nobody reads these charts at.
+        c.execute('''
+            CREATE TABLE IF NOT EXISTS geo_cache (
+                ip TEXT PRIMARY KEY,
+                city TEXT,
+                country TEXT,
+                looked_up_at TEXT
+            )
+        ''')
+
+        c.execute('CREATE INDEX IF NOT EXISTS idx_visitor_logs_timestamp '
+                  'ON visitor_logs (timestamp)')
         conn.commit()
         conn.close()
 
-    def log_visit(self, ip, path, ua, city="Unknown", country="Unknown"):
-        """Records a new visitor event to the database."""
+    def log_visit(self, ip, path, ua, city="Unknown", country="Unknown",
+                  kind="landing", visitor_id=None, is_bot=0, referrer=None):
+        """Records a new visitor event to the database.
+
+        The first five parameters keep their pre-0.10.0 positions so an existing
+        caller keeps working unchanged; the additions are keyword-friendly with
+        defaults that reproduce the old row shape.
+        """
         conn = sqlite3.connect(self.db_name)
         c = conn.cursor()
         now = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
         c.execute('''
-            INSERT INTO visitor_logs (timestamp, ip_address, path, user_agent, city, country)
-            VALUES (?, ?, ?, ?, ?, ?)
-        ''', (now, ip, path, ua, city, country))
+            INSERT INTO visitor_logs
+                (timestamp, ip_address, path, user_agent, city, country,
+                 kind, visitor_id, is_bot, referrer)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        ''', (now, ip, path, ua, city, country,
+              kind, visitor_id, int(bool(is_bot)), referrer))
+        conn.commit()
+        conn.close()
+
+    def get_cached_geo(self, ip):
+        """The cached (city, country) for `ip`, or None if it has never been looked up.
+
+        None means "no answer", never "Unknown": a lookup that failed is cached AS
+        ("Lookup", "Error") by the caller if it wants that, so a None here is the one
+        signal that a network lookup is still worth making.
+        """
+        conn = sqlite3.connect(self.db_name)
+        c = conn.cursor()
+        row = c.execute('SELECT city, country FROM geo_cache WHERE ip = ?', (ip,)).fetchone()
+        conn.close()
+        return (row[0], row[1]) if row else None
+
+    def cache_geo(self, ip, city, country):
+        """Upsert one geolocation result. Last write wins, which is fine for data
+        this static."""
+        conn = sqlite3.connect(self.db_name)
+        c = conn.cursor()
+        now = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+        c.execute('''
+            INSERT INTO geo_cache (ip, city, country, looked_up_at)
+            VALUES (?, ?, ?, ?)
+            ON CONFLICT(ip) DO UPDATE SET
+                city = excluded.city, country = excluded.country,
+                looked_up_at = excluded.looked_up_at
+        ''', (ip, city, country, now))
         conn.commit()
         conn.close()
 
