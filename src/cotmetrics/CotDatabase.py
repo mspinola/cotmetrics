@@ -82,9 +82,21 @@ class CotDatabase:
                 ip TEXT PRIMARY KEY,
                 city TEXT,
                 country TEXT,
-                looked_up_at TEXT
+                looked_up_at TEXT,
+                hosting INTEGER
             )
         ''')
+
+        # `hosting` came later than the table, so an existing cache needs the ALTER.
+        # ip-api reports it on the free tier alongside city and country, and it is the
+        # only signal that separates a datacenter client sending a browser user agent
+        # from an actual browser. NULL means "cached before this column existed", which
+        # the consumer treats as unknown and refetches once; a row written since is
+        # always 0 or 1, never NULL, so that refetch cannot become a loop.
+        try:
+            c.execute('ALTER TABLE geo_cache ADD COLUMN hosting INTEGER')
+        except sqlite3.OperationalError:
+            pass
 
         c.execute('CREATE INDEX IF NOT EXISTS idx_visitor_logs_timestamp '
                   'ON visitor_logs (timestamp)')
@@ -125,21 +137,46 @@ class CotDatabase:
         conn.close()
         return (row[0], row[1]) if row else None
 
-    def cache_geo(self, ip, city, country):
+    def cache_geo(self, ip, city, country, hosting=None):
         """Upsert one geolocation result. Last write wins, which is fine for data
-        this static."""
+        this static.
+
+        `hosting` is trailing and optional so a pre-0.11.0 caller keeps working; pass
+        a bool to record whether the address belongs to a datacenter or proxy.
+        """
         conn = sqlite3.connect(self.db_name)
         c = conn.cursor()
         now = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
         c.execute('''
-            INSERT INTO geo_cache (ip, city, country, looked_up_at)
-            VALUES (?, ?, ?, ?)
+            INSERT INTO geo_cache (ip, city, country, looked_up_at, hosting)
+            VALUES (?, ?, ?, ?, ?)
             ON CONFLICT(ip) DO UPDATE SET
                 city = excluded.city, country = excluded.country,
-                looked_up_at = excluded.looked_up_at
-        ''', (ip, city, country, now))
+                looked_up_at = excluded.looked_up_at,
+                hosting = excluded.hosting
+        ''', (ip, city, country, now, None if hosting is None else int(bool(hosting))))
         conn.commit()
         conn.close()
+
+    def get_cached_hosting(self, ip):
+        """Is `ip` known to be a datacenter or proxy address? True, False, or None.
+
+        Deliberately NOT folded into `get_cached_geo`'s return: that is a two-tuple
+        every caller unpacks positionally, and widening it would break them all to save
+        one indexed SELECT against a local file.
+
+        None covers both "never looked up" and "looked up before the column existed".
+        Both mean the same thing to a caller (ask again), and the second case resolves
+        itself on the next lookup, because `cache_geo` writes 0 or 1 rather than NULL
+        for anything it has an answer for.
+        """
+        conn = sqlite3.connect(self.db_name)
+        c = conn.cursor()
+        row = c.execute('SELECT hosting FROM geo_cache WHERE ip = ?', (ip,)).fetchone()
+        conn.close()
+        if row is None or row[0] is None:
+            return None
+        return bool(row[0])
 
     def get_visitor_stats(self):
         """Retrieves recent logs for the admin dashboard."""
