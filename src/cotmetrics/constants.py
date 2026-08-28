@@ -424,6 +424,7 @@ SETUP_NEAR_STATES = (SETUP_NEAR_BULL, SETUP_NEAR_BEAR)
 # each re-deriving the rules. Leading underscore: internal, never shown as a column.
 SETUP_CLS_COL = "_setup_cls"
 SETUP_NPF_COL = "_setup_npf"
+SETUP_NPF_CLS_COL = "_setup_npf_cls"
 IS_EQUITY_COL = "_is_equity"
 
 ZSCORE_MIN_THRESHOLD = -2.0

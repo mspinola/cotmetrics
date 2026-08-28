@@ -32,11 +32,14 @@ def get_matrix_data(asset_classes, lookback, target_date=None):
     # on the same row as the raw ones. No second fetch, no second basis argument, which
     # is what lets one pass report both models side by side.
     #
-    # These two are display columns now, not gate inputs. The gates ask the model which
-    # columns they read (see setup_cls / setup_npf below). Only the Comm and Small legs
-    # are shown because the normalized block exists to explain the NPF CS verdict, and
-    # that gate drops Large Specs. The raw block still shows all three.
+    # These are display columns now, not gate inputs. The gates ask the model which
+    # columns they read (see setup_cls / setup_npf / setup_npf_cls below). The email's
+    # normalized block still shows only the Comm and Small legs, because it exists to
+    # explain the NPF CS verdict and that gate drops Large Specs; the normalized Large
+    # leg is carried on the frame anyway because NPF CLS 95/5 gates on it, and the
+    # Crowding Strip draws every leg a model gates on.
     norm_idx_col = idx_col + const.NORMALIZED
+    norm_lrg_idx_col = lrg_idx_col + const.NORMALIZED
     norm_sml_idx_col = sml_idx_col + const.NORMALIZED
 
     # Index momentum, on both bases, for the same reason the index itself is carried on
@@ -110,12 +113,15 @@ def get_matrix_data(asset_classes, lookback, target_date=None):
             is_equity = get_indexer().is_equity(asset)
             setup_cls = models.RAW_PF.setup_state_from(latest, lookback, is_equity)
             setup_npf = models.NPF.setup_state_from(latest, lookback, is_equity)
+            setup_npf_cls = models.NPF_CLS_95_5.setup_state_from(latest, lookback,
+                                                                 is_equity)
 
             row = {
                 "Asset Class": ac,
                 "Asset": asset,
                 const.SETUP_CLS_COL: setup_cls,
                 const.SETUP_NPF_COL: setup_npf,
+                const.SETUP_NPF_CLS_COL: setup_npf_cls,
                 const.IS_EQUITY_COL: is_equity,
                 "Date": dt_str,
                 "Tape Bias": tape_bias,
@@ -124,6 +130,7 @@ def get_matrix_data(asset_classes, lookback, target_date=None):
                 "Lrg Index": round(latest.get(lrg_idx_col, 0), 0) if pd.notna(latest.get(lrg_idx_col)) else None,
                 "Sml Index": round(latest.get(sml_idx_col, 0), 0) if pd.notna(latest.get(sml_idx_col)) else None,
                 "Comm Index Norm": round(latest.get(norm_idx_col, 0), 0) if pd.notna(latest.get(norm_idx_col)) else None,
+                "Lrg Index Norm": round(latest.get(norm_lrg_idx_col, 0), 0) if pd.notna(latest.get(norm_lrg_idx_col)) else None,
                 "Sml Index Norm": round(latest.get(norm_sml_idx_col, 0), 0) if pd.notna(latest.get(norm_sml_idx_col)) else None,
                 "Comm Move": round(latest.get(const.COMM_MOMENTUM, 0), 0) if pd.notna(latest.get(const.COMM_MOMENTUM)) else None,
                 "Comm Move Norm": round(latest.get(norm_mom_col, 0), 0) if pd.notna(latest.get(norm_mom_col)) else None,

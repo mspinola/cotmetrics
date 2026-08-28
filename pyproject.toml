@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "cotmetrics"
-version = "0.11.0"
+version = "0.12.0"
 description = "Turn raw COT data into positioning metrics and trading signals (positioning index, concentration/clustering/position-size, reversal signals)."
 readme = "README.md"
 license = { text = "MIT" }

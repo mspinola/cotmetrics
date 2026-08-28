@@ -8,8 +8,9 @@ index is built from, which speculator legs have to agree, and how far into the t
 counts as an extreme. Those three are *not* independently chosen. Each combination that
 means anything comes from a book in docs/npf/surviving_books.md:
 
-    Raw PF   raw net contracts   Commercials + Large + Small   95/5
-    NPF      net / open interest Commercials + Small           80/20
+    Raw PF        raw net contracts   Commercials + Large + Small   95/5
+    NPF           net / open interest Commercials + Small           80/20
+    NPF CLS 95/5  net / open interest Commercials + Large + Small   95/5
 
 Mixing across the rows produces a rule nobody validated. That was not a hypothetical:
 the Analysis page drew the OI-normalized index and shaded it with the raw 95/5 CLS gate,
@@ -179,20 +180,41 @@ NPF = PositioningModel(
     high=const.INDEX_NORM_HIGH_THRESHOLD, low=const.INDEX_NORM_LOW_THRESHOLD,
 )
 
-MODELS = (RAW_PF, NPF)
-_BY_KEY = {m.key: m for m in MODELS}
-_BY_BASIS = {m.basis: m for m in MODELS}
+# NPF CLS 95/5, the tight-band OI-normalized book from the same table in
+# surviving_books.md: highest per-trade expectancy and the shallowest drawdowns of the
+# family, but too few forward-test trades to deploy standalone, which is why NPF CS
+# 80/20 stayed the headline. It is here so the app can draw its verdicts beside the
+# other two, not because its status changed. Because the band is 95/5 on a series that
+# rarely pins its own extremes, expect it to fire far less often than either neighbour.
+NPF_CLS_95_5 = PositioningModel(
+    key="npf_cls_95_5", label="NPF", gate="CLS", basis=const.BASIS_OI_NORM,
+    spec_legs=(LEG_LARGE, LEG_SMALL),
+    high=const.INDEX_HIGH_THRESHOLD, low=const.INDEX_LOW_THRESHOLD,
+)
 
-# NPF is the default the app opens on, because it is the book that is actually
-# deployable: Raw CLS 95/5 is the baseline NPF is measured *against*, not the thing to
-# trade. On the board at the time of the switch it fired on 7 of 42 markets against Raw
-# PF's 4, and contained all 4, so nothing the old default surfaced was lost.
+MODELS = (RAW_PF, NPF, NPF_CLS_95_5)
+_BY_KEY = {m.key: m for m in MODELS}
+# Basis OWNERSHIP, not mere membership, and explicit now that two models share the
+# OI-normalized basis. for_basis answers for callers whose basis is already fixed by
+# something else (the data layer's POS_IDX_SETUP_* columns, the Analysis page's shading,
+# the Both overlay's fallback), and those callers must keep getting the book that was
+# always behind that basis: NPF for OI-normalized, because it is the deployable headline
+# and handing them the CLS variant would silently restate every derived setup column.
+_BY_BASIS = {RAW_PF.basis: RAW_PF, NPF.basis: NPF}
+
+# Raw PF is the default the app opens on, by request (2026-08-28, alongside NPF CLS
+# 95/5 joining the registry): with three models on the selector the faithful baseline
+# is the natural reference frame to start from, and both normalized books are then a
+# deliberate switch away. NPF held the default before that, on the argument that it is
+# the deployable book while Raw CLS 95/5 is only the baseline it is measured against;
+# that argument still holds for TRADING, this default is about READING.
 #
 # This is the app's reading default only. It is deliberately NOT the data layer's:
 # get_symbols_data still defaults to BASIS_RAW, because npf's deployed path calls it
 # positionally and changing that would silently restate every deployed signal. The two
-# defaults answer different questions and are pinned by separate tests.
-DEFAULT_MODEL = NPF
+# happen to agree on raw today, but they answer different questions and are pinned by
+# separate tests, so moving one is never a reason to move the other.
+DEFAULT_MODEL = RAW_PF
 
 
 def resolve(key):
@@ -205,10 +227,12 @@ def resolve(key):
 
 
 def for_basis(basis):
-    """The model that owns a basis.
+    """The model that OWNS a basis, which since NPF CLS 95/5 is no longer the only
+    model on it.
 
-    Each basis belongs to exactly one model, which is what makes "normalized data, raw
-    gate" unrepresentable. Used where the basis is already fixed by something else, such
-    as a chart panel the user picked a basis for.
+    Used where the basis is already fixed by something else, such as a chart panel the
+    user picked a basis for, and the answer is pinned to the book that has always
+    governed that basis (see _BY_BASIS). A caller who means a specific model resolves
+    it by key instead.
     """
     return _BY_BASIS.get(basis, DEFAULT_MODEL)

@@ -19,11 +19,17 @@ COCOA_RAW = (0, 100, 80)          # Small Specs short of the gate
 
 # ── the bundle holds together ─────────────────────────────────────────────────
 
-def test_each_basis_belongs_to_exactly_one_model():
-    """The property that makes "normalized data, raw gate" unrepresentable."""
-    assert len({m.basis for m in models.MODELS}) == len(models.MODELS)
+def test_each_basis_has_exactly_one_owner():
+    """A basis used to belong to exactly one model; since NPF CLS 95/5 two models share
+    the OI-normalized basis, so ownership is pinned instead. for_basis feeds callers
+    whose basis is fixed by something else (the data layer's POS_IDX_SETUP_* columns,
+    the Analysis page's shading), and those must keep getting the book that has always
+    governed that basis: handing them the CLS variant would silently restate every
+    derived setup column."""
+    assert models.for_basis(const.BASIS_RAW) is models.RAW_PF
+    assert models.for_basis(const.BASIS_OI_NORM) is models.NPF
     for m in models.MODELS:
-        assert models.for_basis(m.basis) is m
+        assert m.basis in const.BASIS_CHOICES
 
 
 def test_models_are_frozen():
@@ -43,28 +49,28 @@ def test_unknown_key_falls_back_rather_than_raising():
     assert models.resolve(None) is models.DEFAULT_MODEL
 
 
-def test_the_app_default_is_npf():
-    """NPF is the deployable book; Raw CLS 95/5 is the baseline it is measured against.
-
-    The app opened on Raw PF while the model plumbing was being built, so that adopting
-    the default changed nothing visible. That scaffolding is done.
-    """
-    assert models.DEFAULT_MODEL is models.NPF
+def test_the_app_default_is_raw_pf():
+    """The faithful baseline is the reference frame the app opens on (chosen
+    2026-08-28, when NPF CLS 95/5 made it three models on the selector). NPF held the
+    default before that as the deployable book; that remains true of trading and this
+    default is about reading."""
+    assert models.DEFAULT_MODEL is models.RAW_PF
 
 
 def test_the_app_default_does_not_move_the_data_layer_default():
-    """Different questions. get_symbols_data still defaults to raw because npf's
-    deployed path calls it positionally, and flipping that would silently restate every
-    deployed signal. test_basis pins the other half of this."""
+    """Different questions, pinned separately. get_symbols_data defaults to raw
+    because npf's deployed path calls it positionally, and flipping that would
+    silently restate every deployed signal. The app default happens to agree with it
+    today; when the app default was NPF they disagreed, and both states are fine.
+    test_basis pins the other half of this."""
     import inspect as _inspect
 
     from cotmetrics.CotIndexer import CotIndexer
     sig = _inspect.signature(CotIndexer.get_symbols_data.__wrapped__)
     assert sig.parameters["basis"].default == const.BASIS_RAW
-    assert models.DEFAULT_MODEL.basis != const.BASIS_RAW
 
 
-# ── the two models are the two books ──────────────────────────────────────────
+# ── the models are the books ──────────────────────────────────────────────────
 
 def test_raw_pf_is_raw_cls_95_5():
     m = models.RAW_PF
@@ -82,10 +88,22 @@ def test_npf_is_oi_norm_cs_80_20():
     assert m.title == "NPF CS 80/20"
 
 
+def test_npf_cls_is_oi_norm_cls_95_5():
+    """The tight-band OI-normalized book from the same surviving_books.md table. In
+    the app for comparison; not deployable standalone (too few forward-test trades),
+    which is why it is neither the default nor the owner of its basis."""
+    m = models.NPF_CLS_95_5
+    assert m.basis == const.BASIS_OI_NORM
+    assert m.spec_legs == (models.LEG_LARGE, models.LEG_SMALL)
+    assert m.band == (95, 5)
+    assert m.title == "NPF CLS 95/5"
+
+
 def test_titles_match_the_signal_matrix_headers():
     """reports.py builds its column-group headers from these, so a change here is a
     change to the emailed report."""
-    assert [m.title for m in models.MODELS] == ["Raw CLS 95/5", "NPF CS 80/20"]
+    assert [m.title for m in models.MODELS] == ["Raw CLS 95/5", "NPF CS 80/20",
+                                                "NPF CLS 95/5"]
 
 
 # ── setup_state delegates without changing the answer ─────────────────────────
