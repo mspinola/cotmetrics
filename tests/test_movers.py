@@ -344,8 +344,13 @@ def _swept(monkeypatch, comm_wow, lrg_wow=4.0, sml_wow=-6.0, model=None,
         {
             const.COMMS_IDX: [98.0, 100.0],
             comm_col: [98.0, 100.0],
-            lrg_col: [10.0, 6.0],
-            sml_col: [9.0, 3.0],
+            # Both rows are FULL bull setups under every model's band: the spec legs
+            # sit at or under the tightest low (5), so these fixtures do not care
+            # which model is the default. They were 10/6 and 9/3 while the default
+            # was NPF's 80/20, and flipping the default to Raw PF's 95/5 turned two
+            # setup-week tests into near-misses through the Large leg alone.
+            lrg_col: [5.0, 4.0],
+            sml_col: [5.0, 3.0],
             const.COMM_WOW: [0.0, comm_wow],
             const.LRG_WOW: [0.0, lrg_wow],
             const.SML_WOW: [0.0, sml_wow],

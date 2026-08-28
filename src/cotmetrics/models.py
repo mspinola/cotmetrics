@@ -202,16 +202,19 @@ _BY_KEY = {m.key: m for m in MODELS}
 # and handing them the CLS variant would silently restate every derived setup column.
 _BY_BASIS = {RAW_PF.basis: RAW_PF, NPF.basis: NPF}
 
-# NPF is the default the app opens on, because it is the book that is actually
-# deployable: Raw CLS 95/5 is the baseline NPF is measured *against*, not the thing to
-# trade. On the board at the time of the switch it fired on 7 of 42 markets against Raw
-# PF's 4, and contained all 4, so nothing the old default surfaced was lost.
+# Raw PF is the default the app opens on, by request (2026-08-28, alongside NPF CLS
+# 95/5 joining the registry): with three models on the selector the faithful baseline
+# is the natural reference frame to start from, and both normalized books are then a
+# deliberate switch away. NPF held the default before that, on the argument that it is
+# the deployable book while Raw CLS 95/5 is only the baseline it is measured against;
+# that argument still holds for TRADING, this default is about READING.
 #
 # This is the app's reading default only. It is deliberately NOT the data layer's:
 # get_symbols_data still defaults to BASIS_RAW, because npf's deployed path calls it
 # positionally and changing that would silently restate every deployed signal. The two
-# defaults answer different questions and are pinned by separate tests.
-DEFAULT_MODEL = NPF
+# happen to agree on raw today, but they answer different questions and are pinned by
+# separate tests, so moving one is never a reason to move the other.
+DEFAULT_MODEL = RAW_PF
 
 
 def resolve(key):

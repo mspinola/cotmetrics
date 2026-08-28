@@ -49,25 +49,25 @@ def test_unknown_key_falls_back_rather_than_raising():
     assert models.resolve(None) is models.DEFAULT_MODEL
 
 
-def test_the_app_default_is_npf():
-    """NPF is the deployable book; Raw CLS 95/5 is the baseline it is measured against.
-
-    The app opened on Raw PF while the model plumbing was being built, so that adopting
-    the default changed nothing visible. That scaffolding is done.
-    """
-    assert models.DEFAULT_MODEL is models.NPF
+def test_the_app_default_is_raw_pf():
+    """The faithful baseline is the reference frame the app opens on (chosen
+    2026-08-28, when NPF CLS 95/5 made it three models on the selector). NPF held the
+    default before that as the deployable book; that remains true of trading and this
+    default is about reading."""
+    assert models.DEFAULT_MODEL is models.RAW_PF
 
 
 def test_the_app_default_does_not_move_the_data_layer_default():
-    """Different questions. get_symbols_data still defaults to raw because npf's
-    deployed path calls it positionally, and flipping that would silently restate every
-    deployed signal. test_basis pins the other half of this."""
+    """Different questions, pinned separately. get_symbols_data defaults to raw
+    because npf's deployed path calls it positionally, and flipping that would
+    silently restate every deployed signal. The app default happens to agree with it
+    today; when the app default was NPF they disagreed, and both states are fine.
+    test_basis pins the other half of this."""
     import inspect as _inspect
 
     from cotmetrics.CotIndexer import CotIndexer
     sig = _inspect.signature(CotIndexer.get_symbols_data.__wrapped__)
     assert sig.parameters["basis"].default == const.BASIS_RAW
-    assert models.DEFAULT_MODEL.basis != const.BASIS_RAW
 
 
 # ── the models are the books ──────────────────────────────────────────────────
