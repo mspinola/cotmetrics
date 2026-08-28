@@ -115,6 +115,9 @@ _INDEX_COLS = {
     "Sml Index":       ("spec", models.RAW_PF.band, const.SETUP_CLS_COL),
     "Comm Index Norm": ("comm", models.NPF.band, const.SETUP_NPF_COL),
     "Sml Index Norm":  ("spec", models.NPF.band, const.SETUP_NPF_COL),
+    # Not in the email's groups today; styled under the model whose gate reads it so
+    # the entry is already right if that block ever grows a Large column.
+    "Lrg Index Norm":  ("spec", models.NPF_CLS_95_5.band, const.SETUP_NPF_CLS_COL),
 }
 
 
