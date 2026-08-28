@@ -31,7 +31,8 @@ def _columns(db, table):
 
 def test_fresh_database_carries_the_tracking_columns(db):
     assert {'kind', 'visitor_id', 'is_bot', 'referrer'} <= set(_columns(db, 'visitor_logs'))
-    assert {'ip', 'city', 'country', 'looked_up_at'} <= set(_columns(db, 'geo_cache'))
+    assert {'ip', 'city', 'country', 'looked_up_at',
+            'hosting'} <= set(_columns(db, 'geo_cache'))
 
 
 def test_a_pre_migration_database_is_altered_in_place(tmp_path):
@@ -74,6 +75,45 @@ def test_the_new_fields_round_trip(db):
     assert row['visitor_id'] == 'abcd1234'
     assert row['is_bot'] == 1
     assert row['referrer'] == 'https://news.ycombinator.com/'
+
+
+def test_hosting_is_unknown_until_it_is_recorded(db):
+    assert db.get_cached_hosting('9.9.9.9') is None          # never looked up
+    db.cache_geo('9.9.9.9', 'Zurich', 'Switzerland')         # pre-0.11.0 call shape
+    assert db.get_cached_hosting('9.9.9.9') is None          # cached, but no answer
+
+
+def test_hosting_round_trips_as_a_bool(db):
+    db.cache_geo('1.1.1.1', 'Santa Clara', 'United States', hosting=True)
+    db.cache_geo('2.2.2.2', 'Verona', 'Italy', hosting=False)
+    assert db.get_cached_hosting('1.1.1.1') is True
+    # False must not read back as unknown, or a residential address would be
+    # refetched on every visit it ever makes.
+    assert db.get_cached_hosting('2.2.2.2') is False
+
+
+def test_a_later_lookup_fills_in_a_row_cached_without_hosting(db):
+    """The self-healing path: a row written before this column refetches once."""
+    db.cache_geo('3.3.3.3', 'Beijing', 'China')
+    assert db.get_cached_hosting('3.3.3.3') is None
+    db.cache_geo('3.3.3.3', 'Beijing', 'China', hosting=True)
+    assert db.get_cached_hosting('3.3.3.3') is True
+
+
+def test_a_geo_cache_predating_hosting_is_altered_in_place(tmp_path):
+    """The 0.10.0 table shape, migrated by setup_database rather than rebuilt."""
+    path = str(tmp_path / "old_geo.db")
+    conn = sqlite3.connect(path)
+    conn.execute("CREATE TABLE geo_cache (ip TEXT PRIMARY KEY, city TEXT, "
+                 "country TEXT, looked_up_at TEXT)")
+    conn.execute("INSERT INTO geo_cache VALUES ('8.8.8.8', 'X', 'Y', '2026-01-01 00:00:00')")
+    conn.commit()
+    conn.close()
+
+    db = CotDatabase(db_name=path)
+    assert 'hosting' in _columns(db, 'geo_cache')
+    assert db.get_cached_geo('8.8.8.8') == ('X', 'Y')   # the old row survives
+    assert db.get_cached_hosting('8.8.8.8') is None     # with no answer yet
 
 
 def test_geo_cache_round_trip_and_miss(db):
