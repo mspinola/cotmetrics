@@ -10,6 +10,7 @@ for 22 of 24 symbols on the exact date the Signal Matrix asks for:
     as "Error retrieving max pain for GC: nan"
 """
 import warnings
+from pathlib import Path
 
 import numpy as np
 import pandas as pd
@@ -184,3 +185,57 @@ def test_a_nan_underlying_is_never_persisted(cache, monkeypatch):
                                      "2026-07-14"))
     assert od.build_daily_options_snapshot("GC", 2000.0) is None
     assert not (cache / "GC_options_history.parquet").exists()
+
+
+def _good_fetch(monkeypatch, quote_date="2026-08-28"):
+    chain = pd.DataFrame({
+        "strike": np.linspace(90.0, 110.0, 12),
+        "openInterest": [10] * 12,
+        "type": ["call"] * 6 + ["put"] * 6,
+    })
+    monkeypatch.setitem(od.ETF_PROXIES, "GC", "GLD")
+    monkeypatch.setattr(od, "fetch_options_chain",
+                        lambda etf: (chain, 100.0, "2026-09-18", quote_date))
+
+
+def test_a_corrupt_history_is_set_aside_not_overwritten(cache, monkeypatch):
+    """One corrupt read used to cost every prior date: the writer logged the read
+    failure and then overwrote the file with today's snapshot alone. Past chains
+    cannot be refetched, so the bytes must survive for hand recovery."""
+    _good_fetch(monkeypatch)
+    history = cache / "GC_options_history.parquet"
+    history.write_bytes(b"not a parquet file")
+
+    assert od.build_daily_options_snapshot("GC", 2000.0) is not None
+
+    asides = list(cache.glob("GC_options_history.parquet.corrupt-*"))
+    assert len(asides) == 1
+    assert asides[0].read_bytes() == b"not a parquet file"
+    fresh = pd.read_parquet(history)
+    assert list(fresh["Date"].unique()) == ["2026-08-28"]
+
+
+def test_the_write_is_atomic_and_leaves_no_temp_behind(cache, monkeypatch):
+    """The history is written to a temp name and renamed into place, so a reader
+    can never see a half-written file at the real name."""
+    _good_fetch(monkeypatch)
+    assert od.build_daily_options_snapshot("GC", 2000.0) is not None
+    assert (cache / "GC_options_history.parquet").exists()
+    assert list(cache.glob("*.tmp-*")) == []
+    # And the temp/aside names never match the history probe pattern.
+    assert not Path("GC_options_history.parquet.tmp-123").match(od.HISTORY_GLOB)
+
+
+def test_an_append_still_replaces_only_the_same_quote_date(cache, monkeypatch):
+    """The atomic rewrite must keep the append semantics: prior dates survive,
+    a rerun on the same quote date replaces that date's rows."""
+    _good_fetch(monkeypatch, quote_date="2026-08-27")
+    od.build_daily_options_snapshot("GC", 2000.0)
+    _good_fetch(monkeypatch, quote_date="2026-08-28")
+    od.build_daily_options_snapshot("GC", 2000.0)
+    od.build_daily_options_snapshot("GC", 2000.0)  # rerun, same quote date
+
+    df = pd.read_parquet(cache / "GC_options_history.parquet")
+    counts = df.groupby("Date").size()
+    assert sorted(counts.index) == ["2026-08-27", "2026-08-28"]
+    assert counts["2026-08-27"] == counts["2026-08-28"]
