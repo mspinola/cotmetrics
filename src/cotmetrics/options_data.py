@@ -1,5 +1,6 @@
 import logging
 import os
+import time
 from pathlib import Path
 from typing import Optional
 
@@ -323,9 +324,23 @@ def build_daily_options_snapshot(futures_symbol: str, live_futures_price: float 
                 hist_df = hist_df[hist_df['Date'] != target_date_str]
                 snapshot_df = pd.concat([hist_df, snapshot_df], ignore_index=True)
             except Exception as e:
-                logger.error(f"Failed to read existing options cache for {futures_symbol}: {e}")
+                # An unreadable history means a torn write (concurrent writers, or
+                # a kill mid-write), and the history is unrecoverable data: yfinance
+                # serves only today's chain. Overwriting here used to turn one
+                # corrupt READ into permanent loss of every prior date. Set the
+                # bytes aside for hand recovery and start a fresh file instead.
+                aside = history_file.with_name(
+                    f"{history_file.name}.corrupt-{int(time.time())}")
+                history_file.replace(aside)
+                logger.error(
+                    f"Unreadable options history for {futures_symbol} ({e}); moved "
+                    f"it aside to {aside.name}, starting a fresh history from today")
 
-        snapshot_df.to_parquet(history_file)
+        # Write-then-rename, with a per-process temp name, so a concurrent reader
+        # or a kill mid-write can never leave a half-written file at the real name.
+        tmp_file = history_file.with_name(f"{history_file.name}.tmp-{os.getpid()}")
+        snapshot_df.to_parquet(tmp_file)
+        tmp_file.replace(history_file)
         logger.info(f"Saved options snapshot for {futures_symbol} (Proxy: {etf_symbol}) to {history_file.name}")
 
         return snapshot_df
@@ -340,8 +355,6 @@ def get_max_pain_for_symbol(futures_symbol: str, target_date=None) -> Optional[f
     Reads the decoupled options cache and returns the Max Pain simulated strike for a given date.
     Returns None if no options data exists for the symbol or date.
     """
-    import time
-
     import cotmetrics.utils as utils
 
     global _MAX_PAIN_CACHE
