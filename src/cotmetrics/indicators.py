@@ -292,3 +292,119 @@ def calculate_willco(col_to_search, lb_idx, cur_idx):
     cur_normalized_net = col_to_search.iloc[cur_idx]
     willco = round((cur_normalized_net - oi_min) / (oi_max - oi_min + 1e-9) * 100)
     return int(willco)
+
+
+# ── Breadth zones and regimes (vendor-published series, published cutoffs) ─────────────
+#
+# These classify daily breadth series that marketdata's ``series`` domain carries from
+# TradingView (cot-analyzer docs/design/tradingview-breadth-scoping.md). They are NOT
+# range indices: the zone edges are absolute, calibrated by the source on the vendor's
+# own scale, and re-normalising them against a trailing window would replace the
+# published cutoffs with ones the window happened to produce. Nothing here has been
+# through the evaluation ladder or crucible; a zone label is a published cutoff
+# restated, not a verdict. The AGI rulebook (agi/docs/02-RULES.md, M-01 and M-07) and
+# the June 2026 Swing Trading Guide (SWG) are the sources, quoted where the numbers
+# come from. A reference implementation in fractions lives in that private repo
+# (agi/metrics.py); this one is in the vendor's PERCENT units, 0 to 100, because that
+# is what the store carries and what every other 0-100 quantity in this module uses.
+
+# M-07, SWG: "% of Nasdaq stocks above their 5-day MA", TradingView INDEX:NCFD. The
+# guide gives the zones in deliberately approximate terms ("roughly the 35-60 area",
+# "below roughly 20-25"). They are reproduced at the stated edges and NOT tightened
+# into a partition: 25-35 and 60-80 are genuinely unnamed in the source, and naming
+# them would invent a position at exactly the boundaries where the call is hardest.
+FOMO_EXHAUSTION_MIN = 80.0        # "A. FOMO > 80: buying exhaustion"
+FOMO_NEUTRAL = (35.0, 60.0)       # "B. 35-60 neutral: constructive backdrop"
+FOMO_FEAR_MAX = 25.0              # "C. Fear < 25: broad pessimism"
+FOMO_ZONES = ("exhaustion", "neutral", "fear", "recovery")
+
+
+def _check_percent(values, what):
+    """Refuse a breadth reading outside 0-100. The published series is a percent; a
+    fraction (0.48 for 48%) is the easy silent mistake, and it cannot be detected
+    from the value alone (0.48% is a real, if rare, reading), so the guard is the
+    range and the docstrings carry the unit."""
+    arr = np.asarray(values, dtype=float)
+    finite = arr[~np.isnan(arr)]
+    if finite.size and (finite.min() < 0 or finite.max() > 100):
+        raise ValueError(
+            f"{what} must be a percent in 0-100, got values in "
+            f"[{finite.min():g}, {finite.max():g}]. The published series is a percent; "
+            f"do not divide it by 100.")
+
+
+def fomo_zone(value, previous=None):
+    """M-07: the SWG zone of one FOMO reading, in PERCENT (48.05, not 0.4805).
+
+    ``previous`` is the prior session's reading and is needed for the fourth zone:
+    "positive recovery" is a DIRECTION, not a level ("fear beginning to reverse"), so
+    it cannot be read off a single value. Without ``previous`` a reading climbing out
+    of fear is reported as the unnamed gap it sits in, never guessed at.
+
+    Returns ``"exhaustion"``, ``"neutral"``, ``"fear"``, ``"recovery"``, or ``None``
+    for a reading the source does not name (the 25-35 and 60-80 gaps) or a missing
+    reading. Order of tests matters and follows the source: a reading still below the
+    fear edge is fear even when rising, so recovery starts on the first close at or
+    above it.
+    """
+    if value is None or value != value:
+        return None
+    _check_percent([value], "FOMO")
+    if value >= FOMO_EXHAUSTION_MIN:
+        return "exhaustion"
+    if value < FOMO_FEAR_MAX:
+        return "fear"
+    if (previous is not None and previous == previous
+            and previous < FOMO_FEAR_MAX and value > previous):
+        return "recovery"
+    if FOMO_NEUTRAL[0] <= value <= FOMO_NEUTRAL[1]:
+        return "neutral"
+    return None
+
+
+def fomo_zones(series):
+    """``fomo_zone`` over a daily series, each reading's ``previous`` being the prior
+    row. Returns an object Series of zone labels and ``None``, same index. The series
+    must be daily and in session order: the recovery test compares consecutive rows,
+    and a weekly collapse would compare readings a week apart, which is not the
+    source's "beginning to reverse".
+    """
+    s = pd.Series(series, dtype=float)
+    _check_percent(s.values, "FOMO")
+    prev = s.shift(1)
+    exhaustion = s >= FOMO_EXHAUSTION_MIN
+    fear = s < FOMO_FEAR_MAX
+    named = exhaustion | fear
+    recovery = ~named & prev.notna() & (prev < FOMO_FEAR_MAX) & (s > prev)
+    neutral = ~named & ~recovery & (s >= FOMO_NEUTRAL[0]) & (s <= FOMO_NEUTRAL[1])
+    out = pd.Series([None] * len(s), index=s.index, dtype=object)
+    out[exhaustion.values] = "exhaustion"
+    out[fear.values] = "fear"
+    out[recovery.values] = "recovery"
+    out[neutral.values] = "neutral"
+    return out
+
+
+# M-01: "Net Highs/Lows = daily count of new 52-week highs minus new 52-week lows.
+# Trend confirmed by 3 consecutive days in one direction; neither => neutral."
+# Canonical implementation is Caruso's own Pine script (agi/indicators/
+# nasdaq_net_highs.pine): net = HIGQ - LOWQ; threeUp = net>0 and net[1]>0 and
+# net[2]>0; threeDown symmetric. A ROLLING condition, not a latching state machine:
+# the regime is "up" on exactly the sessions where the last three nets were all
+# positive, and lapses the session one of them is not.
+NET_HIGHS_CONFIRM_DAYS = 3
+
+
+def net_highs_regime(net, days=NET_HIGHS_CONFIRM_DAYS):
+    """M-01: ``"up"`` where the last ``days`` nets are all positive, ``"down"`` where
+    all negative, ``None`` otherwise (mixed, a zero, or too little history). ``net``
+    is the daily new-highs-minus-new-lows count in session order. Object Series,
+    same index.
+    """
+    s = pd.Series(net, dtype=float)
+    ups = (s > 0).astype(int).rolling(days, min_periods=days).sum() == days
+    downs = (s < 0).astype(int).rolling(days, min_periods=days).sum() == days
+    out = pd.Series([None] * len(s), index=s.index, dtype=object)
+    out[ups.values] = "up"
+    out[downs.values] = "down"
+    return out
