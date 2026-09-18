@@ -203,11 +203,14 @@ LEG_COLUMNS = {
     LEG_SPEC: (const.LARGE_NET, const.SMALL_NET),
 }
 
+# Display names. The three report legs carry the CFTC Legacy report's own category
+# names; the app's older Large Specs / Small Traders were CMR aliases. LEG_SPEC is the
+# app's own sum, so it keeps a descriptive name that says what is in it.
 LEG_LABELS = {
     LEG_COMM: "Commercials",
-    LEG_LARGE: "Large Speculators",
-    LEG_SMALL: "Small Traders",
-    LEG_SPEC: "Speculators (Large + Small)",
+    LEG_LARGE: "Non-Commercials",
+    LEG_SMALL: "Non-Reportables",
+    LEG_SPEC: "Speculators (Non-Commercial + Non-Reportable)",
 }
 
 

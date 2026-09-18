@@ -200,10 +200,17 @@ def generate_matrix_html(df: pd.DataFrame, report_date: str = None) -> str:
     ]
 
     # The group header already says which basis the block is, so the column headers
-    # drop the "Norm" suffix rather than repeating it three more times.
+    # drop the "Norm" suffix rather than repeating it three more times. The leg
+    # prefixes are the CFTC's own column prefixes (Comm / NonComm / NonRept), not the
+    # matrix's internal Lrg / Sml spelling, which consumers key on and so stays put.
     display_names = {
+        "Lrg Index": "NonComm Index",
+        "Sml Index": "NonRept Index",
         "Comm Index Norm": "Comm Index",
-        "Sml Index Norm": "Sml Index",
+        "Sml Index Norm": "NonRept Index",
+        "Lrg Move": "NonComm Move",
+        "Sml Move": "NonRept Move",
+        "Inst Sentiment": "NonComm Sentiment",
     }
 
     # Flatten column order
