@@ -239,3 +239,42 @@ def test_an_append_still_replaces_only_the_same_quote_date(cache, monkeypatch):
     counts = df.groupby("Date").size()
     assert sorted(counts.index) == ["2026-08-27", "2026-08-28"]
     assert counts["2026-08-27"] == counts["2026-08-28"]
+
+
+# ── which strike is max pain ──────────────────────────────────────────────────
+
+def _v_snapshot(date, underlying=100.0, max_pain=96.3, n=200):
+    """A V-shaped curve whose floor, 96.5, is a grid point the strike ladder does
+    not have; the chain's nearest real strike is 96.3."""
+    grid = np.linspace(80.0, 120.0, n)
+    return pd.DataFrame({
+        "Date": [date] * n, "Expiry": ["2026-10-16"] * n,
+        "UnderlyingPrice": [underlying] * n, "SimulatedStrike": grid,
+        "IntrinsicValue_M": np.abs(grid - 96.5) * 10 + 5,
+        "MaxPainStrike": [max_pain] * n, "ETF_Proxy": ["GLD"] * n,
+    })
+
+
+def test_max_pain_is_the_stored_real_strike_not_the_grid_argmin(cache):
+    """The writer snaps the minimum to a real strike; the reader used to ignore it
+    and take the grid's argmin, so the heatmap's Max Pain Pull sat on a different
+    strike from the star the analysis panels draw."""
+    df = _v_snapshot("2026-09-18")
+    df.to_parquet(cache / "GC_options_history.parquet")
+    res = od.get_max_pain_for_symbol("GC", "2026-09-18")
+    assert res["max_pain"] == 96.3
+    assert res["max_pain"] != df.loc[df["IntrinsicValue_M"].idxmin(), "SimulatedStrike"]
+    # Both payouts are read off the curve by interpolation at the exact prices.
+    curve_at = lambda x: np.interp(x, df["SimulatedStrike"], df["IntrinsicValue_M"])  # noqa: E731
+    assert res["delta_iv"] == pytest.approx(curve_at(100.0) - curve_at(96.3))
+
+
+def test_a_snapshot_without_the_column_falls_back_to_the_grid_argmin(cache):
+    df = _v_snapshot("2026-09-18").drop(columns="MaxPainStrike")
+    df.to_parquet(cache / "GC_options_history.parquet")
+    res = od.get_max_pain_for_symbol("GC", "2026-09-18")
+    assert res["max_pain"] == df.loc[df["IntrinsicValue_M"].idxmin(), "SimulatedStrike"]
+    od._MAX_PAIN_CACHE.clear()
+    _v_snapshot("2026-09-18").assign(MaxPainStrike=np.nan).to_parquet(
+        cache / "GC_options_history.parquet")
+    assert od.get_max_pain_for_symbol("GC", "2026-09-18")["max_pain"] == res["max_pain"]

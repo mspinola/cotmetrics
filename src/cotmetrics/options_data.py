@@ -560,14 +560,20 @@ def get_max_pain_for_symbol(futures_symbol: str, target_date=None) -> Optional[f
                 f"snapshot carries no usable intrinsic-value curve")
             return None
 
-        # Max Pain is the simulated strike with the absolute minimum intrinsic value
-        min_idx = daily_df['IntrinsicValue_M'].idxmin()
-        max_pain = daily_df.loc[min_idx, 'SimulatedStrike']
-        min_iv = daily_df.loc[min_idx, 'IntrinsicValue_M']
-
-        # Calculate Delta IV
-        closest_strike_idx = (daily_df['SimulatedStrike'] - current_price).abs().idxmin()
-        current_iv = daily_df.loc[closest_strike_idx, 'IntrinsicValue_M']
+        # Max pain is the stored `MaxPainStrike`: the curve's minimum snapped to a
+        # strike the chain actually has (calculate_intrinsic_curve). The curve itself
+        # is a 200-point grid over +/-20% of the underlying, so its argmin is a point
+        # up to half a grid step off any real strike, and reading it here put the
+        # heatmap's Max Pain Pull on a different strike from the star the analysis
+        # panels draw (cot-analyzer#134). Snapshots written before the column existed
+        # fall back to the grid argmin. Both payouts are read off the curve by
+        # interpolation, so a strike between grid points is not rounded to one.
+        curve = daily_df.sort_values('SimulatedStrike')
+        max_pain = curve['MaxPainStrike'].iloc[0] if 'MaxPainStrike' in curve else np.nan
+        if pd.isna(max_pain):
+            max_pain = curve.loc[curve['IntrinsicValue_M'].idxmin(), 'SimulatedStrike']
+        min_iv = np.interp(max_pain, curve['SimulatedStrike'], curve['IntrinsicValue_M'])
+        current_iv = np.interp(current_price, curve['SimulatedStrike'], curve['IntrinsicValue_M'])
         delta_iv = current_iv - min_iv
 
 
