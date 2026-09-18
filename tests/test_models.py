@@ -77,7 +77,8 @@ def test_raw_pf_is_raw_cls_95_5():
     assert m.basis == const.BASIS_RAW
     assert m.spec_legs == (models.LEG_LARGE, models.LEG_SMALL)
     assert m.band == (95, 5)
-    assert m.title == "Raw CLS 95/5"
+    assert m.gate == "CLS"
+    assert m.title == "Raw 3-leg 95/5"
 
 
 def test_npf_is_oi_norm_cs_80_20():
@@ -85,7 +86,8 @@ def test_npf_is_oi_norm_cs_80_20():
     assert m.basis == const.BASIS_OI_NORM
     assert m.spec_legs == (models.LEG_SMALL,)
     assert m.band == (80, 20)
-    assert m.title == "NPF CS 80/20"
+    assert m.gate == "CS"
+    assert m.title == "NPF 2-leg 80/20"
 
 
 def test_npf_cls_is_oi_norm_cls_95_5():
@@ -96,14 +98,24 @@ def test_npf_cls_is_oi_norm_cls_95_5():
     assert m.basis == const.BASIS_OI_NORM
     assert m.spec_legs == (models.LEG_LARGE, models.LEG_SMALL)
     assert m.band == (95, 5)
-    assert m.title == "NPF CLS 95/5"
+    assert m.gate == "CLS"
+    assert m.title == "NPF 3-leg 95/5"
 
 
 def test_titles_match_the_signal_matrix_headers():
     """reports.py builds its column-group headers from these, so a change here is a
     change to the emailed report."""
-    assert [m.title for m in models.MODELS] == ["Raw CLS 95/5", "NPF CS 80/20",
-                                                "NPF CLS 95/5"]
+    assert [m.title for m in models.MODELS] == ["Raw 3-leg 95/5", "NPF 2-leg 80/20",
+                                                "NPF 3-leg 95/5"]
+
+
+def test_titles_never_carry_the_books_gate_notation():
+    """CLS / CS spell the legs by the CMR vocabulary's initials. The gate keeps that
+    notation because it is the books' pre-registered name; a screen never shows it."""
+    for m in models.MODELS:
+        assert m.gate in models.GATE_LABELS
+        assert m.gate not in m.title.split()
+        assert m.gate_label == models.GATE_LABELS[m.gate]
 
 
 # ── setup_state delegates without changing the answer ─────────────────────────
