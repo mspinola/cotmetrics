@@ -387,7 +387,7 @@ INDEX_NORM_LOW_THRESHOLD = 20
 # legs. utils.is_setup requires all legs at once -- a bullish CLS setup is
 # `comm >= 95 AND lrg <= 5 AND sml <= 5` -- so a cell scored on its own can look like a
 # setup while the row is nowhere near one. Orange Juice at (96, 0, 100) is the standing
-# example: Commercials and Large Specs are both through their gates, but Small Specs sit
+# example: Commercials and Non-Commercials are both through their gates, but Non-Reportables sit
 # at the opposite extreme and block it outright.
 #
 # Three states, no gradation inside them. A setup is binary -- is_setup fires for New

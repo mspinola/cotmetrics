@@ -165,7 +165,7 @@ def calculate_liquidity_strain_ratio_index(comm_net_col, large_net_col, lb_weeks
 
     This metric measures the physical contract leverage of speculative trend-followers
     against the baseline absorption capacity of commercial hedgers. By evaluating the
-    ratio of Large Speculator net positions to the absolute mass of Commercial net
+    ratio of Non-Commercial net positions to the absolute mass of Commercial net
     positions, it identifies regimes where speculative liquidity demand is severely
     straining or outgrowing institutional liquidity supply.
 
@@ -182,7 +182,7 @@ def calculate_liquidity_strain_ratio_index(comm_net_col, large_net_col, lb_weeks
 
     Args:
         comm_net_col (pd.Series): The net position column for Commercial traders.
-        large_net_col (pd.Series): The net position column for Large Speculators.
+        large_net_col (pd.Series): The net position column for Non-Commercials.
         lb_weeks (int): The lookback window in weeks for the rolling Z-score normalization.
 
     Returns:

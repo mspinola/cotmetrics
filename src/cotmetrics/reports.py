@@ -34,8 +34,8 @@ def get_matrix_data(asset_classes, lookback, target_date=None):
     #
     # These are display columns now, not gate inputs. The gates ask the model which
     # columns they read (see setup_cls / setup_npf / setup_npf_cls below). The email's
-    # normalized block still shows only the Comm and Small legs, because it exists to
-    # explain the NPF CS verdict and that gate drops Large Specs; the normalized Large
+    # normalized block still shows only the Comm and NonRept legs, because it exists to
+    # explain the NPF CS verdict and that gate drops Non-Commercials; the normalized Non-Commercial
     # leg is carried on the frame anyway because NPF CLS 95/5 gates on it, and the
     # Crowding Strip draws every leg a model gates on.
     norm_idx_col = idx_col + const.NORMALIZED
@@ -176,7 +176,7 @@ def generate_matrix_html(df: pd.DataFrame, report_date: str = None) -> str:
         ("",               ["Asset Class", "Asset", "Tape Bias", "Signals"]),
         # The two blocks are the two models, side by side. This is the one surface that
         # shows both rather than following a single choice, because comparing them is
-        # what the Signal Matrix is for. Large Specs is absent from the NPF block
+        # what the Signal Matrix is for. Non-Commercial is absent from the NPF block
         # because the CS gate drops that leg.
         (f"Positioning · {models.RAW_PF.title}",
                            ["Comm Index", "Lrg Index", "Sml Index"]),

@@ -361,7 +361,7 @@ def calculate_oi_acceleration(df, velocity_window=3, acceleration_window=2):
 
 def calculate_lrg_spec_momentum_divergence(df, price, momentum_window=3):
     """
-    Quantifies friction where Large Speculator momentum accelerates
+    Quantifies friction where Non-Commercial momentum accelerates
     but price actions hits an absolute structural stalemate wall.
 
     Returns a categorical integer Series:
@@ -369,7 +369,7 @@ def calculate_lrg_spec_momentum_divergence(df, price, momentum_window=3):
      -1  = Bearish Divergence (Specs frantic buying into a heavy price ceiling)
       0  = Synchronized/Normal Market Physics
     """
-    # 1. Calculate Large Speculator momentum velocity
+    # 1. Calculate Non-Commercial momentum velocity
     # Using the same 3-week smoothing logic established in your positioning module
     large_idx_smooth = df[const.LARGE_CUSTOM_IDX].rolling(window=3, min_periods=1).mean()
     spec_velocity = large_idx_smooth - large_idx_smooth.shift(momentum_window)

@@ -30,7 +30,7 @@ below its average entry.
 
 **Extreme positioning is not offside positioning, and is closer to its opposite.**
 Measured across 44 markets and 69,806 market-weeks (`npf/docs/analysis/
-2026-08-23-offside-positioning-measure.md`), Large Specs at a range-index extreme are
+2026-08-23-offside-positioning-measure.md`), Non-Commercials at a range-index extreme are
 underwater 14.2% of the time against 42.7% for neutral positioning, and the two
 conditions overlap on 6.7% of crowded weeks where independence would give 10%. This is
 mechanical once stated: positioning becomes extreme because a cohort added into a move
@@ -43,8 +43,8 @@ It is not a timing signal, and that is a measured result rather than caution: th
 pre-registered test in `npf/docs/handoffs/2026-08-23-offside-capitulation-prereg.md`
 asked whether deep offside predicts capitulation beyond the adverse price move it is
 built from, and the verdict was **adverse-move proxy**. Within equally severe adverse
-moves, deep-offside cohorts capitulated no more often (Large Specs -3.6pp, not
-significant) and Small Traders significantly LESS (-11.8pp, CI [-15.2, -8.4]). The raw
+moves, deep-offside cohorts capitulated no more often (Non-Commercials -3.6pp, not
+significant) and Non-Reportables significantly LESS (-11.8pp, CI [-15.2, -8.4]). The raw
 association exists and is real; it is the price move wearing a different label. Anything
 proposing to trade this needs its own pre-registration, and the direction the evidence
 leans is not the intuitive one.
