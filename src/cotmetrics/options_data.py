@@ -135,10 +135,78 @@ ETF_PROXIES = {
     "ETH": "ETHE",
 }
 
+#: Below this share of the NEXT monthly's open interest, the nearest monthly is a
+#: listing rather than a chain and the snapshot steps forward one month. Measured
+#: 2026-09-18 across the proxies: SPY, GLD, USO, TLT and FXE all held 40% or more
+#: of the following month on their nearest monthly; CORN held 1.6% (1.8k against
+#: 110k on the November chain, which is where the grain year's interest sits).
+MONTHLY_OI_STEP_RATIO = 0.25
+
+
+def is_standard_monthly(expiry, listed) -> bool:
+    """True when `expiry` is its month's standard (third-Friday) expiration.
+
+    When the third Friday is an exchange holiday the monthly trades on the Thursday
+    before it, so a Thursday one day short of the third Friday counts as the monthly
+    when the Friday itself is not listed.
+    """
+    ts = pd.Timestamp(expiry)
+    first = ts.replace(day=1)
+    third_friday = first + pd.Timedelta(days=(4 - first.weekday()) % 7 + 14)
+    if ts == third_friday:
+        return True
+    return (ts == third_friday - pd.Timedelta(days=1)
+            and third_friday.strftime("%Y-%m-%d") not in set(listed))
+
+
+def select_expiry(expirations, today, chain_oi):
+    """The expiry the max-pain snapshot is taken on.
+
+    Max pain reads the open interest that will be forced to settle, so the chain
+    must be one that carries some. On the ETF proxies that is the standard monthly:
+    measured 2026-09-18, SPY's nearest monthly held 2.2M contracts against 75k to
+    250k on the weeklies around it, GLD 488k against 6k to 40k, TLT 1.5M against
+    56k to 120k. The old rule, the first listed expiry more than three days out,
+    landed on those weeklies for every proxy with daily or weekly listings, and
+    rolled the premium/discount history onto a new thin chain every week.
+
+    Rule: the nearest standard monthly still open after today, stepping forward one
+    month when that chain holds less than MONTHLY_OI_STEP_RATIO of the next one's
+    open interest (a listed-but-empty month, which CORN shows). A proxy with no
+    monthly listed falls back to the first expiry more than three days out.
+
+    `chain_oi(expiry)` returns total open interest on that expiry; it is only called
+    for the nearest monthly and the one after it, so the cost is at most two chain
+    fetches beyond the one the snapshot needs anyway.
+    """
+    today = pd.Timestamp(today).normalize()
+    listed = list(expirations)
+    monthlies = [e for e in listed
+                 if pd.Timestamp(e) > today and is_standard_monthly(e, listed)]
+    if not monthlies:
+        later = [e for e in listed if pd.Timestamp(e) > today + pd.Timedelta(days=3)]
+        return later[0] if later else listed[0]
+    nearest = monthlies[0]
+    if len(monthlies) == 1:
+        return nearest
+    nearest_oi = chain_oi(nearest)
+    following_oi = chain_oi(monthlies[1])
+    if following_oi > 0 and nearest_oi < MONTHLY_OI_STEP_RATIO * following_oi:
+        logger.info(f"Stepping past {nearest} (OI {nearest_oi:,.0f}) to "
+                    f"{monthlies[1]} (OI {following_oi:,.0f})")
+        return monthlies[1]
+    return nearest
+
+
+def _chain_total_oi(opt) -> float:
+    return float(opt.calls['openInterest'].fillna(0).sum()
+                 + opt.puts['openInterest'].fillna(0).sum())
+
+
 def fetch_options_chain(etf_symbol: str):
     """
-    Fetches the nearest expiration options chain for a given ETF proxy using yfinance.
-    Returns the chain dataframe, underlying price, and expiration date.
+    Fetches the options chain on the expiry `select_expiry` picks for a given ETF proxy
+    using yfinance. Returns the chain dataframe, underlying price, and expiration date.
     """
     try:
         tk = yf.Ticker(etf_symbol)
@@ -146,17 +214,19 @@ def fetch_options_chain(etf_symbol: str):
             logger.warning(f"No options found for {etf_symbol}")
             return None, None, None, None
 
-        # Get the nearest expiration date
-        # Usually we want the monthly opex, but for proxies we just take the nearest front-month
-        # that has significant volume. For simplicity, we just take the first available.
-        # To avoid 0DTE noise, let's pick the first expiry that is at least 3 days out.
-        expirations = tk.options
-        today = pd.Timestamp.now().normalize()
-        valid_expiries = [exp for exp in expirations if pd.Timestamp(exp) > today + pd.Timedelta(days=3)]
+        # Chains are fetched at most three times per symbol (the two candidate
+        # monthlies and the winner); cache them so the winner is not refetched.
+        chains = {}
 
-        target_expiry = valid_expiries[0] if valid_expiries else expirations[0]
+        def chain_for(expiry):
+            if expiry not in chains:
+                chains[expiry] = tk.option_chain(expiry)
+            return chains[expiry]
 
-        opt = tk.option_chain(target_expiry)
+        target_expiry = select_expiry(tk.options, pd.Timestamp.now(),
+                                      lambda e: _chain_total_oi(chain_for(e)))
+
+        opt = chain_for(target_expiry)
         calls = opt.calls
         puts = opt.puts
 
@@ -259,6 +329,76 @@ def calculate_intrinsic_curve(chain: pd.DataFrame, underlying_price: float, poin
     return simulated_prices, total_intrinsic, max_pain_strike
 
 
+def calculate_strike_ladder(chain: pd.DataFrame) -> pd.DataFrame:
+    """The chain's open interest and payout on its REAL strikes, calls and puts apart.
+
+    One row per strike that carries open interest, in the ETF's own units:
+
+        Strike       the listed strike
+        CallOI       open call contracts at that strike
+        PutOI        open put contracts at that strike
+        CallPayout_M what EVERY open call on the chain pays out if the underlying
+                     settles at that strike, in millions
+        PutPayout_M  the same for every open put
+
+    `CallPayout_M + PutPayout_M` is `calculate_intrinsic_curve`'s curve evaluated at
+    the strike, so the two agree by construction; what this adds is the split, which
+    the summed curve cannot recover (which side's interest is doing the pulling), and
+    the ladder itself, which the 200-point grid does not keep (SPY strikes sit $1
+    apart, the grid step at current prices is ~$1.50).
+    """
+    calls = chain[chain['type'] == 'call']
+    puts = chain[chain['type'] == 'put']
+    strikes = np.sort(chain['strike'].unique())
+    call_oi = calls.groupby('strike')['openInterest'].sum().reindex(strikes, fill_value=0)
+    put_oi = puts.groupby('strike')['openInterest'].sum().reindex(strikes, fill_value=0)
+    call_payout = np.array([
+        (np.maximum(0, k - calls['strike']) * calls['openInterest']).sum() * 100
+        for k in strikes]) / 1_000_000.0
+    put_payout = np.array([
+        (np.maximum(0, puts['strike'] - k) * puts['openInterest']).sum() * 100
+        for k in strikes]) / 1_000_000.0
+    return pd.DataFrame({
+        'Strike': strikes,
+        'CallOI': call_oi.to_numpy(dtype=float),
+        'PutOI': put_oi.to_numpy(dtype=float),
+        'CallPayout_M': call_payout,
+        'PutPayout_M': put_payout,
+    })
+
+
+def _append_day(history_file: Path, snapshot_df: pd.DataFrame, target_date_str: str,
+                futures_symbol: str) -> pd.DataFrame:
+    """Append one day to a permanent per-symbol parquet, replacing that day if present.
+
+    Shared by the curve history and the strike ladder so both carry the same two
+    protections. An unreadable history means a torn write (concurrent writers, or a
+    kill mid-write), and the history is unrecoverable data: yfinance serves only
+    today's chain. Overwriting used to turn one corrupt READ into permanent loss of
+    every prior date, so the bytes are set aside for hand recovery and a fresh file
+    starts instead. And the write is write-then-rename under a per-process temp name,
+    so a concurrent reader or a kill mid-write never sees a half-written file at the
+    real name.
+    """
+    if history_file.exists():
+        try:
+            hist_df = pd.read_parquet(history_file)
+            hist_df = hist_df[hist_df['Date'] != target_date_str]
+            snapshot_df = pd.concat([hist_df, snapshot_df], ignore_index=True)
+        except Exception as e:
+            aside = history_file.with_name(
+                f"{history_file.name}.corrupt-{int(time.time())}")
+            history_file.replace(aside)
+            logger.error(
+                f"Unreadable options history for {futures_symbol} ({e}); moved "
+                f"it aside to {aside.name}, starting a fresh history from today")
+
+    tmp_file = history_file.with_name(f"{history_file.name}.tmp-{os.getpid()}")
+    snapshot_df.to_parquet(tmp_file)
+    tmp_file.replace(history_file)
+    return snapshot_df
+
+
 def build_daily_options_snapshot(futures_symbol: str, live_futures_price: float = None):
     """
     Fetches the live options chain for the ETF proxy of the futures_symbol,
@@ -315,33 +455,37 @@ def build_daily_options_snapshot(futures_symbol: str, live_futures_price: float 
             'ETF_Proxy': [etf_symbol] * len(sim_px)
         })
 
-        # Append to historical parquet file
         history_file = cache_dir / f"{futures_symbol}_options_history.parquet"
-        if history_file.exists():
-            try:
-                hist_df = pd.read_parquet(history_file)
-                # Remove target_date if already ran on this quote date
-                hist_df = hist_df[hist_df['Date'] != target_date_str]
-                snapshot_df = pd.concat([hist_df, snapshot_df], ignore_index=True)
-            except Exception as e:
-                # An unreadable history means a torn write (concurrent writers, or
-                # a kill mid-write), and the history is unrecoverable data: yfinance
-                # serves only today's chain. Overwriting here used to turn one
-                # corrupt READ into permanent loss of every prior date. Set the
-                # bytes aside for hand recovery and start a fresh file instead.
-                aside = history_file.with_name(
-                    f"{history_file.name}.corrupt-{int(time.time())}")
-                history_file.replace(aside)
-                logger.error(
-                    f"Unreadable options history for {futures_symbol} ({e}); moved "
-                    f"it aside to {aside.name}, starting a fresh history from today")
-
-        # Write-then-rename, with a per-process temp name, so a concurrent reader
-        # or a kill mid-write can never leave a half-written file at the real name.
-        tmp_file = history_file.with_name(f"{history_file.name}.tmp-{os.getpid()}")
-        snapshot_df.to_parquet(tmp_file)
-        tmp_file.replace(history_file)
+        snapshot_df = _append_day(history_file, snapshot_df, target_date_str, futures_symbol)
         logger.info(f"Saved options snapshot for {futures_symbol} (Proxy: {etf_symbol}) to {history_file.name}")
+
+        # The strike ladder, calls and puts apart, in a second file beside the curve
+        # (a different row key, so not new columns on it). Additive, since
+        # 2026-09-18: days before it have no ladder rows and nothing backfills them.
+        # Written after the curve and guarded on its own, so a ladder failure costs
+        # the ladder for the day, never the curve every reader depends on.
+        try:
+            ladder = calculate_strike_ladder(chain)
+            ladder_df = pd.DataFrame({
+                'Date': target_date_str,
+                'Expiry': expiry,
+                'UnderlyingPrice': scaled_underlying,
+                # Strike is in the same (scaled) units as SimulatedStrike and
+                # MaxPainStrike; EtfStrike keeps the listed strike so the ladder's
+                # real granularity survives the scaling.
+                'Strike': ladder['Strike'] * ratio,
+                'EtfStrike': ladder['Strike'],
+                'CallOI': ladder['CallOI'],
+                'PutOI': ladder['PutOI'],
+                'CallPayout_M': ladder['CallPayout_M'],
+                'PutPayout_M': ladder['PutPayout_M'],
+                'ETF_Proxy': etf_symbol,
+            })
+            _append_day(cache_dir / f"{futures_symbol}_options_strikes.parquet",
+                        ladder_df, target_date_str, futures_symbol)
+        except Exception as e:
+            logger.error(f"Strike ladder for {futures_symbol} not written ({e}); "
+                         f"the curve snapshot for {target_date_str} is intact")
 
         return snapshot_df
     except Exception as e:
