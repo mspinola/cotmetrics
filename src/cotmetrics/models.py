@@ -8,9 +8,9 @@ index is built from, which speculator legs have to agree, and how far into the t
 counts as an extreme. Those three are *not* independently chosen. Each combination that
 means anything comes from a book in docs/npf/surviving_books.md:
 
-    Raw PF        raw net contracts   Commercials + Large + Small   95/5
-    NPF           net / open interest Commercials + Small           80/20
-    NPF CLS 95/5  net / open interest Commercials + Large + Small   95/5
+    Raw PF        raw net contracts   Comm + NonComm + NonRept   95/5   (gate CLS)
+    NPF           net / open interest Comm + NonRept             80/20  (gate CS)
+    NPF CLS 95/5  net / open interest Comm + NonComm + NonRept   95/5   (gate CLS)
 
 Mixing across the rows produces a rule nobody validated. That was not a hypothetical:
 the Analysis page drew the OI-normalized index and shaded it with the raw 95/5 CLS gate,
@@ -34,6 +34,18 @@ import cotmetrics.utils as utils
 # get_symbols_data lands on the frame, so a model can be applied to a row by name.
 LEG_LARGE = "lrg"
 LEG_SMALL = "sml"
+
+# What a gate is CALLED on a screen. The books' notation (CLS, CS) spells the legs by
+# the initials of the CMR vocabulary (Commercials, Large, Small), and the app has moved
+# its display names to the CFTC's categories (Commercial, Non-Commercial,
+# Non-Reportable), whose initials would only be a new cipher. So a title counts the
+# legs instead and leaves naming them to the tooltip beside it. `gate` itself keeps the
+# books' notation: it is the pre-registered spec name that npf, livebook and the
+# deployments ledger all use, and renaming it would be a spec change, not a display one.
+GATE_LABELS = {
+    "CLS": "3-leg",
+    "CS": "2-leg",
+}
 
 
 @dataclass(frozen=True)
@@ -59,9 +71,18 @@ class PositioningModel:
         return (self.high, self.low)
 
     @property
+    def gate_label(self):
+        """The gate as a screen names it ("3-leg"), never the books' notation."""
+        return GATE_LABELS[self.gate]
+
+    @property
     def title(self):
-        """Full display name, e.g. "Raw CLS 95/5"."""
-        return f"{self.label} {self.gate} {self.high}/{self.low}"
+        """Full display name, e.g. "Raw 3-leg 95/5".
+
+        Built from `gate_label`, not `gate`: the books' "CLS" / "CS" is a spec name and
+        stays available on the model for anything that needs to cite the book.
+        """
+        return f"{self.label} {self.gate_label} {self.high}/{self.low}"
 
     def setup_state(self, comm_idx, lrg_idx=None, sml_idx=None, is_equity=False):
         """This model's verdict on one row, as a const.SETUP_* state.
