@@ -933,7 +933,7 @@ def agreement(values) -> float:
 
     Worth having beside any aggregate on this page because it moves a lot and moves
     independently of the level. Measured on one week of the equity complex: 1.00 for
-    Small Traders, who were unanimous, and 0.63 for Large Speculators, who were split,
+    Non-Reportables, who were unanimous, and 0.63 for Non-Commercials, who were split,
     on the same markets on the same day.
 
     Returns NaN on an empty set or an all-zero one, where the ratio is undefined rather

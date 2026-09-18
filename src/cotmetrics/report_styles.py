@@ -49,7 +49,7 @@ def _leg_agrees(v, state, high, low, near=const.SETUP_NEAR_WIDTH):
     """Is a speculator leg on the side its row's setup direction implies?
 
     Uses the same "close" width as the near states rather than the gate itself, so a
-    leg that is plainly on the right side still counts: S&P 500's Small Specs at 91
+    leg that is plainly on the right side still counts: S&P 500's Non-Reportables at 91
     agree with a bear setup even though the gate is 95.
     """
     if state == const.SETUP_BULL:
@@ -70,8 +70,8 @@ def _setup_cell_style(v, state, role, high, low, is_equity=False,
 
     A full setup washes every leg in the band. A near setup only tints the legs actually
     at or near their own gate, so the blocking leg stays neutral and reads as the reason
-    the setup has not fired: Cocoa at (0, 100, 80) tints Commercials and Large Specs and
-    leaves Small Specs dim.
+    the setup has not fired: Cocoa at (0, 100, 80) tints Commercials and Non-Commercials and
+    leaves Non-Reportables dim.
 
     Equities skip the speculator legs in utils.is_setup, so their spec cells never tint
     on a near state. On a full setup the whole band washes, since for equities the
@@ -86,7 +86,7 @@ def _setup_cell_style(v, state, role, high, low, is_equity=False,
         # An equity setup is decided by Commercials alone, so its spec legs can sit
         # anywhere. Washing the whole band still reads correctly as "this row is a
         # setup", but it would colour a leg against its own value: DOW is a bear setup
-        # whose Small Specs sit at 64, and a red mid-range cell invites being read as a
+        # whose Non-Reportables sit at 64, and a red mid-range cell invites being read as a
         # bearish extreme. So an equity spec leg only washes when it is at least near
         # its own gate on the setup's side. Commodity rows are unaffected -- is_setup
         # already required every leg through its gate before the state could be full.
@@ -116,7 +116,7 @@ _INDEX_COLS = {
     "Comm Index Norm": ("comm", models.NPF.band, const.SETUP_NPF_COL),
     "Sml Index Norm":  ("spec", models.NPF.band, const.SETUP_NPF_COL),
     # Not in the email's groups today; styled under the model whose gate reads it so
-    # the entry is already right if that block ever grows a Large column.
+    # the entry is already right if that block ever grows a Non-Commercial column.
     "Lrg Index Norm":  ("spec", models.NPF_CLS_95_5.band, const.SETUP_NPF_CLS_COL),
 }
 

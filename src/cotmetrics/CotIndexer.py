@@ -1111,8 +1111,8 @@ class CotIndexer:
         # •Date – the date of the event
         # •Time – the time of the event (optional)
         # •Type – any numeric code > 0 --
-        #         Here type 1 is Commercials Index, 2 is Large Specs Index, and 3 is Small Specs Index
-        #              type 4 is Commercials Net Position, 5 is Large Specs Net Position, and 6 is Small Specs Net Position
+        #         Here type 1 is Commercial Index, 2 is Non-Commercial Index, and 3 is Non-Reportable Index
+        #              type 4 is Commercial Net Position, 5 is Non-Commercial Net Position, and 6 is Non-Reportable Net Position
         # •Value – any numeric value (e.g. dividend amount, or EPS, or index constituency flags)
         working_dir = os.getcwd()
         real_test_data_dir = self.real_test_data_dir
@@ -1149,7 +1149,7 @@ class CotIndexer:
             lambda x: x.date())
         large_specs_idx_df[const.SYMBOL] = [
             self.instruments[instrument].symbol] * len(df[const.REPORT_DATE_XLS])
-        large_specs_idx_df["Type"] = 2  # Large specs index
+        large_specs_idx_df["Type"] = 2  # Non-Commercial index
         large_specs_idx_df["Value"] = df[const.LARGE_CUSTOM_IDX]
         large_specs_idx_df = large_specs_idx_df[large_specs_idx_df["Value"] != -1]
 
@@ -1182,7 +1182,7 @@ class CotIndexer:
             lambda x: x.date())
         large_specs_pos_df[const.SYMBOL] = [
             self.instruments[instrument].symbol + "_B"] * len(df[const.REPORT_DATE_XLS])
-        large_specs_pos_df["Type"] = 5  # Large specs net position
+        large_specs_pos_df["Type"] = 5  # Non-Commercial net position
         large_specs_pos_df["Value"] = df[const.LARGE_NET]
         large_specs_pos_df = large_specs_pos_df[large_specs_pos_df["Value"] != -1]
 

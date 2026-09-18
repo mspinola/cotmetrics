@@ -490,7 +490,7 @@ def append_trading_signals(df, asset_class=None, normalized=False):
         # Conditions:
         # 1. Price Confirmation: Price breaks the short-term downtrend line.
         # 2. Open Interest: Sharp decrease, confirming trapped shorts are covering.
-        # 3. Extreme Positioning: Speculators (Large or Small) are trapped at extreme
+        # 3. Extreme Positioning: Speculators (Non-Commercial or Non-Reportable) are trapped at extreme
         #    short levels, while Commercials hold massive (standard or 3-year) net longs.
         # ==============================================================================
         # 1. Price Confirmation
@@ -603,7 +603,7 @@ def append_trading_signals(df, asset_class=None, normalized=False):
         # Conditions:
         # 1. Price: Exhaustion at support (price has stopped making short-term lows).
         # 2. Open Interest: Actively declining (confirming shorts are covering).
-        # 3. Speculator Covering: Specs (Large or Small) are trapped net short but are
+        # 3. Speculator Covering: Speculators (Non-Commercial or Non-Reportable) are trapped net short but are
         #    now aggressively buying to cover their positions.
         # 4. Commercial Accumulation: Smart money is quietly adding to longs.
         # ==============================================================================
@@ -635,7 +635,7 @@ def append_trading_signals(df, asset_class=None, normalized=False):
         # 1. Price: Boring or bad (not in an established uptrend).
         # 2. Open Interest: Extremely low (public has completely abandoned the market).
         # 3. Commercials: Pushed to massive, multi-year extreme long levels (e.g., 95+).
-        # 4. Speculators (Large & Small): Aggressively positioned short or overwhelmingly bearish.
+        # 4. Speculators (Non-Commercial and Non-Reportable): Aggressively positioned short or overwhelmingly bearish.
         # ==============================================================================
         # 1. Price: Not breaking out
         boring_or_bad_price = ~price.uptrend
@@ -661,8 +661,8 @@ def append_trading_signals(df, asset_class=None, normalized=False):
         # Conditions:
         # 1. Price: Must be in an established downtrend.
         # 2. Open Interest: Rising (new money entering the market to drive the trend).
-        # 3. Institutional Momentum: Large Specs are confirmed to be net short.
-        # 4. Public Momentum: Small Specs are net short and aggressively pressing shorts.
+        # 3. Institutional Momentum: Non-Commercials are confirmed to be net short.
+        # 4. Public Momentum: Non-Reportables are net short and aggressively pressing shorts.
         # 5. Commercial Abstinence: Commercials are actively withdrawing bids (pulling back).
         # ==============================================================================
         # 4. Public Momentum: Retail is net short and pressing shorts heavily
@@ -690,8 +690,8 @@ def append_trading_signals(df, asset_class=None, normalized=False):
         # Conditions:
         # 1. Price: Must be in a confirmed uptrend.
         # 2. Open Interest: Pushed to extreme highs (an insanely crowded trade).
-        # 3. Institutional Euphoria: Large Specs are heavily net long.
-        # 4. Public Euphoria: Small Specs are net long and aggressively buying.
+        # 3. Institutional Euphoria: Non-Commercials are heavily net long.
+        # 4. Public Euphoria: Non-Reportables are net long and aggressively buying.
         # 5. Extreme Posture: Commercials are structurally max short (standard or 3-yr).
         # 6. Commercial Distribution: Commercials are actively driving their net position lower.
         # ==============================================================================
@@ -729,10 +729,10 @@ def append_trading_signals(df, asset_class=None, normalized=False):
         # Conditions:
         # 1. Price: In an established uptrend or resting near recent highs.
         # 2. Open Interest: Actively declining (the absolute footprint of liquidation).
-        # 3. Speculator Profit-Taking: Large Specs were heavily long and are now dumping.
+        # 3. Speculator Profit-Taking: Non-Commercials were heavily long and are now dumping.
         # 4. Commercial Abstinence: Commercials are not buying (net position is stable/falling).
         # ==============================================================================
-        # 3. Speculator Profit-Taking: Large Specs cashing out of extended longs
+        # 3. Speculator Profit-Taking: Non-Commercials cashing out of extended longs
         df[const.EXHAUSTION] = (
             price.stalling_at_highs &
             oi.actively_declining &

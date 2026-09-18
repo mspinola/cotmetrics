@@ -110,7 +110,7 @@ def is_setup(is_equity, comms_idx, lrg_idx, sml_idx, min_idx=5, max_idx=95,
     """Vectorized setup detector. Works on scalars or Series.
 
     `spec_idxs` overrides which speculator legs gate the setup, for models whose gate is
-    not the three-leg CLS default. The CS gate drops Large Specs, so it passes
+    not the three-leg CLS default. The CS gate drops Non-Commercials, so it passes
     [sml_idx]. Left as None the legs are [lrg_idx, sml_idx], matching every existing
     caller.
 
@@ -132,10 +132,10 @@ def is_setup(is_equity, comms_idx, lrg_idx, sml_idx, min_idx=5, max_idx=95,
         #
         # The second clause is the fix. The rule used to be the first clause alone, so a
         # row with one spec through its gate read as "approaching" even when another spec
-        # sat at the opposite extreme: Orange Juice at Comm 96 / Large 0 / Small 100 was
-        # near_bull on Large, while Small at 100 leaned hard bearish. Requiring no leg
+        # sat at the opposite extreme: Orange Juice at Comm 96 / NonComm 0 / NonRept 100 was
+        # near_bull on Non-Commercials, while Non-Reportables at 100 leaned hard bearish. Requiring no leg
         # past neutral drops that, while keeping rows where a leg is short of its gate but
-        # still on the setup's side (Cocoa's Small at 80 against a bear setup).
+        # still on the setup's side (Cocoa's Non-Reportables at 80 against a bear setup).
         #
         # Keeping the first clause is what leaves the NPF CS gate untouched: with a single
         # spec leg, "that leg near its gate" already implies "on the setup's side", so the
@@ -165,7 +165,7 @@ def setup_state(comm_idx, spec_idxs, is_equity=False,
 
     Returns one of SETUP_BULL / SETUP_BEAR / SETUP_NEAR_BULL / SETUP_NEAR_BEAR /
     SETUP_NONE. Same rules as `is_setup`, generalized two ways: any number of
-    speculator legs (the NPF CS gate uses Commercials plus Small only, where the CLS
+    speculator legs (the NPF CS gate uses Commercials plus Non-Reportables only, where the CLS
     gate uses all three) and any threshold pair.
 
     A full setup takes precedence over a near one, and `is_setup` is the reference:
@@ -194,7 +194,7 @@ def setup_state(comm_idx, spec_idxs, is_equity=False,
         bear = bear and all(s >= max_idx for s in legs)
         # A near setup needs one spec leg within reach of its gate AND no leg leaning
         # against it (past neutral the wrong way). The second clause is the addition: it
-        # drops rows blocked by a leg at the opposite extreme (Orange Juice's Small at
+        # drops rows blocked by a leg at the opposite extreme (Orange Juice's Non-Reportables at
         # 100 against a bull) while keeping a leg that is short of its gate but still on
         # the setup's side. The first clause leaves the single-leg NPF gate unchanged.
         # See is_setup, the reference this is checked against.

@@ -194,7 +194,7 @@ RAW_PF = PositioningModel(
 
 # NPF, the deployable headline. Dividing net by open interest strips the secular growth
 # in contract size, so the normalized series spends far less time pinned at the ends of
-# its own range and 95/5 would almost never fire. The CS gate drops the Large Spec leg.
+# its own range and 95/5 would almost never fire. The CS gate drops the Non-Commercial leg.
 NPF = PositioningModel(
     key="npf", label="NPF", gate="CS", basis=const.BASIS_OI_NORM,
     spec_legs=(LEG_SMALL,),

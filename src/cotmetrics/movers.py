@@ -14,7 +14,7 @@ questions, which is why both exist:
 
 Commercials rather than whichever leg moved most. Every setup gates on the Commercial
 leg, so a large Commercial move is the one that can actually change a row's setup
-state. Ranking on any leg surfaces more, but Small Specs crowd it out: their median
+state. Ranking on any leg surfaces more, but Non-Reportables crowd it out: their median
 weekly move is 8.0 points against 6.0 for the other two, so raw-point ranking
 over-selects them without that meaning more.
 
@@ -99,7 +99,7 @@ def _caption(idx, delta):
     Describes position, not prediction: "pushed into the top of its range", never
     "bullish". It also says nothing about the row's setup state, which travels as a
     separate field. Gluing the two together reads as cause and effect and is often
-    exactly wrong -- Orange Juice's Small Specs jumped 69 points into their own top,
+    exactly wrong -- Orange Juice's Non-Reportables jumped 69 points into their own top,
     which is what *blocks* its bullish setup rather than advancing it.
 
     The tiers are deliberately a fixed scale rather than the active model's band. This
