@@ -161,3 +161,19 @@ def test_spearman_matches_per_window_reference_with_gaps(lb):
         den = np.sqrt(np.dot(xm, xm) * np.dot(ym, ym))
         ref[i] = np.nan if den == 0 else np.dot(xm, ym) / den
     np.testing.assert_array_equal(got, ref)
+
+
+@pytest.mark.parametrize("L", [1, 2, 8, 52, 216])
+def test_rank_2d_by_sort_equals_broadcast_ranks(L):
+    # The 2D ranks moved from a broadcast compare to a sort; the 1D broadcast form is
+    # kept and is the reference. Heavy ties (values drawn from a handful), repeated
+    # runs, negatives and a signed zero, at widths up to the widest custom lookback.
+    rng = np.random.default_rng(L)
+    A = rng.integers(-3, 4, size=(300, L)).astype(float)
+    A[::7] = rng.normal(0, 1, size=A[::7].shape)       # tie-free rows too
+    A[5] = 2.0                                         # an all-tied row
+    if L > 1:
+        A[6, :2] = [0.0, -0.0]                         # -0.0 ties with 0.0
+    got = indicators._pure_numpy_rank_2d(A)
+    for r in range(A.shape[0]):
+        np.testing.assert_array_equal(got[r], indicators._pure_numpy_rank_1d(A[r]))

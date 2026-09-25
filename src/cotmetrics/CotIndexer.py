@@ -1297,8 +1297,9 @@ class CotIndexer:
         the cold-start case.
 
         Rebuilding took ~100s on the full universe (47 markets, M-series Mac) until
-        0.14.2 made process_lookback rolling rather than per-row; it is ~12s now, and
-        several times that on the VPS's slower cores. The navbar interval fires
+        0.14.2 made process_lookback rolling rather than per-row (~12s) and 0.14.3
+        ranked the Spearman windows by sort (~6s); on the VPS the same step measured
+        856s before and 96s after 0.14.2. The navbar interval fires
         once per open browser tab, so concurrent callers are ordinary rather than
         exotic. The lock makes the second caller wait for the first rather than start a
         duplicate rebuild, and the re-check under it means it then returns immediately.
