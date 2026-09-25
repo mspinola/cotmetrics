@@ -55,6 +55,25 @@ def test_project_trendline_flat_line():
     assert conditions.project_trendline(flat) == pytest.approx(42.0)
 
 
+@pytest.mark.parametrize("window", [2, 3, 5, 10])
+def test_rolling_trendline_projection_matches_rolling_polyfit(window):
+    # The vectorised form must agree with a polyfit per window, NaN for NaN, since
+    # is_down_trend_line_break's crossover compares a close against it.
+    rng = np.random.default_rng(7)
+    s = pd.Series(100 + rng.normal(0, 2, 400).cumsum())
+    s.iloc[[0, 37, 38, 200]] = np.nan  # leading NaN and gaps inside windows
+    expected = s.rolling(window).apply(conditions.project_trendline, raw=True)
+    got = conditions.rolling_trendline_projection(s, window)
+    assert got.index.equals(s.index)
+    assert (got.isna() == expected.isna()).all()
+    np.testing.assert_allclose(got, expected, rtol=1e-10, equal_nan=True)
+
+
+def test_rolling_trendline_projection_shorter_than_window_is_all_nan():
+    got = conditions.rolling_trendline_projection(pd.Series([1.0, 2.0, 3.0]), 5)
+    assert got.isna().all() and len(got) == 3
+
+
 # ── calculate_cot_macd ──────────────────────────────────────────────────────
 def test_cot_macd_constant_series_is_all_zero():
     net = pd.Series([100.0] * 60)
