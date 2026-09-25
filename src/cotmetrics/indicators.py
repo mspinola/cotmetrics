@@ -97,12 +97,34 @@ def calculate_spearman_correlation(closing_price_col, pos_col, lb_weeks, nan_val
 
 
 def _pure_numpy_rank_2d(A):
-    # Broadcast compare to rank along axis 1 (handling ties via average method)
-    less_matrix = A[:, :, None] > A[:, None, :]
-    equal_matrix = A[:, :, None] == A[:, None, :]
-    less_count = less_matrix.sum(axis=-1)
-    equal_count = equal_matrix.sum(axis=-1)
-    return 1.0 + less_count + 0.5 * (equal_count - 1)
+    """Average-method ranks along axis 1, by sorting each row.
+
+    Replaces a broadcast compare (every value against every other in its row), which
+    was O(L^2) per row in time and in memory: at the 216-week custom lookbacks some
+    markets carry, one call built two ~75M-cell arrays, and the rolling Spearman was
+    most of a rebuild on the VPS. Sorting is O(L log L).
+
+    Same ranks exactly, not approximately. A run of equal values occupying sorted
+    positions first..last (0-based) gets 1 + (first + last) / 2, which is the old
+    formula's 1 + less + (equal - 1) / 2 with less = first and equal = last - first + 1.
+    Both are half-integers, so there is no rounding either way. Rows must not contain
+    NaN (the caller only passes clean windows); _pure_numpy_rank_1d keeps the
+    broadcast form for the few NaN-bearing windows and is the reference in the tests.
+    """
+    m, L = A.shape
+    order = np.argsort(A, axis=1, kind="stable")
+    s = np.take_along_axis(A, order, axis=1)
+    # starts[:, j]: position j opens a new run of equal values; ends[:, j]: closes one.
+    starts = np.ones((m, L), dtype=bool)
+    starts[:, 1:] = s[:, 1:] != s[:, :-1]
+    ends = np.ones((m, L), dtype=bool)
+    ends[:, :-1] = starts[:, 1:]
+    pos = np.arange(L)
+    first = np.maximum.accumulate(np.where(starts, pos, 0), axis=1)
+    last = np.minimum.accumulate(np.where(ends, pos, L - 1)[:, ::-1], axis=1)[:, ::-1]
+    ranks = np.empty((m, L), dtype=float)
+    np.put_along_axis(ranks, order, 1.0 + (first + last) / 2.0, axis=1)
+    return ranks
 
 
 def _pure_numpy_rank_1d(x):
