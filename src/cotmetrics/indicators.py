@@ -37,6 +37,41 @@ def calculate_cot_index(col_to_search, lb_idx, cur_idx):
     return result
 
 
+def rolling_cot_index(col_to_search, lb_weeks):
+    """``calculate_cot_index`` at every row, in one rolling pass.
+
+    Row i is ``calculate_cot_index(col, i - lb_weeks, i)``, a window of lb_weeks + 1
+    rows, and NaN for the first lb_weeks rows (everywhere when lb_weeks < 0), which is
+    where process_lookback used to write None. The per-row call this replaces did a
+    pandas slice plus min and max per cell, about 2 million of them per rebuild, and
+    was ~95% of the time a new COT week took to reach the site. Rolling min and max do
+    no arithmetic, so the result is identical to the per-row call, not approximately
+    equal; pinned in tests/test_indicators.py.
+
+    Rounding is np.round, half-to-even, the same as the builtin round on a numpy float
+    that the per-row call uses.
+    """
+    return _rolling_range_pct(col_to_search, lb_weeks, zero_nan=True)
+
+
+def _rolling_range_pct(col_to_search, lb_weeks, zero_nan):
+    if lb_weeks < 0:
+        return pd.Series(np.nan, index=col_to_search.index)
+    s = pd.Series(col_to_search.to_numpy(dtype=float))
+    # min_periods=1 counts non-NaN observations, so an all-NaN window gives NaN and a
+    # partly-NaN one skips the gaps: pandas' Series.min/max on the slice, exactly.
+    roll = s.rolling(window=lb_weeks + 1, min_periods=1)
+    lo = roll.min()
+    hi = roll.max()
+    result = (s - lo) / (hi - lo + 1e-9) * 100
+    if zero_nan:
+        result = result.fillna(0)
+    result = np.round(result, 0)
+    result.iloc[:lb_weeks] = np.nan
+    result.index = col_to_search.index
+    return result
+
+
 def calculate_spearman_correlation(closing_price_col, pos_col, lb_weeks, nan_val=0.0):
     corrs = []
     for i in range(len(closing_price_col)):
@@ -82,31 +117,38 @@ def _pure_numpy_rank_1d(x):
 def calculate_spearman_correlation_vectorized(df, price_col, pos_col, lb_weeks, fallback_val=np.nan):
     """
     Vectorized, high-performance rolling Spearman Rank Correlation using pure NumPy.
-    Eliminates Python loops when no NaNs are present using sliding window strides,
-    and falls back to an optimized NumPy loop when NaNs exist to match pandas NaN handling.
-    Does not require scipy or external rank packages.
+    Every window with no NaN in it goes through sliding window strides in one pass;
+    only the windows that hold a NaN take the per-row loop, which drops the gaps to
+    match pandas NaN handling. Does not require scipy or external rank packages.
+
+    The split is per WINDOW, not per series. It used to be per series, so a single NaN
+    anywhere sent every row down the loop, and a COT history that predates its price
+    bars always has leading NaN prices: every market took the loop, and this was most
+    of a rebuild once the index loop was vectorized. The two paths give identical
+    values, not merely close ones: tie-averaged ranks of a full window always average
+    exactly (L + 1) / 2, so every centered term is a multiple of 0.5 and every sum is
+    exact whichever path adds it up.
     """
-    prices_series = df[price_col]
-    pos_series = df[pos_col]
-
-    # Check if there are any NaNs in the inputs
-    has_nans = prices_series.isna().any() or pos_series.isna().any()
-
-    prices = prices_series.to_numpy()
-    positions = pos_series.to_numpy()
+    prices = df[price_col].to_numpy(dtype=float)
+    positions = df[pos_col].to_numpy(dtype=float)
     n = len(prices)
 
     if n < lb_weeks:
         return pd.Series(np.full(n, fallback_val), index=df.index)
 
-    if not has_nans:
-        # 100% Vectorized Path (no loops, extremely fast)
-        shape = (n - lb_weeks + 1, lb_weeks)
-        strides = (prices.strides[0], prices.strides[0])
-        prices_2d = np.lib.stride_tricks.as_strided(prices, shape=shape, strides=strides)
+    corrs = np.full(n, fallback_val, dtype=float)
 
-        strides_pos = (positions.strides[0], positions.strides[0])
-        pos_2d = np.lib.stride_tricks.as_strided(positions, shape=shape, strides=strides_pos)
+    # Window w covers rows w .. w + lb_weeks - 1 and lands on row w + lb_weeks - 1.
+    valid = ~np.isnan(prices) & ~np.isnan(positions)
+    shape = (n - lb_weeks + 1, lb_weeks)
+    valid_2d = np.lib.stride_tricks.sliding_window_view(valid, lb_weeks)
+    clean = valid_2d.all(axis=-1)
+
+    if clean.any():
+        prices_2d = np.lib.stride_tricks.as_strided(
+            prices, shape=shape, strides=(prices.strides[0], prices.strides[0]))[clean]
+        pos_2d = np.lib.stride_tricks.as_strided(
+            positions, shape=shape, strides=(positions.strides[0], positions.strides[0]))[clean]
 
         ranks_price = _pure_numpy_rank_2d(prices_2d)
         ranks_pos = _pure_numpy_rank_2d(pos_2d)
@@ -127,36 +169,34 @@ def calculate_spearman_correlation_vectorized(df, price_col, pos_col, lb_weeks, 
             # fallback (NaN by default so the plot draws a gap rather than a flat 0).
             corr = np.where(den > 0, cov / den, fallback_val)
 
-        result = np.full(n, fallback_val)
-        result[lb_weeks - 1:] = corr
-        return pd.Series(result, index=df.index)
-    else:
-        # Optimized NumPy Loop Path (handles NaNs dynamically and matches pandas exactly)
-        corrs = np.full(n, fallback_val, dtype=float)
-        for i in range(lb_weeks - 1, n):
-            w_price = prices[i - lb_weeks + 1 : i + 1]
-            w_pos = positions[i - lb_weeks + 1 : i + 1]
+        corrs[np.flatnonzero(clean) + lb_weeks - 1] = corr
 
-            mask = ~np.isnan(w_price) & ~np.isnan(w_pos)
-            wp = w_price[mask]
-            wpos = w_pos[mask]
+    # Optimized NumPy loop over only the windows that hold a NaN (drops the gaps
+    # dynamically, matching pandas).
+    for w in np.flatnonzero(~clean):
+        i = w + lb_weeks - 1
+        w_price = prices[w : i + 1]
+        w_pos = positions[w : i + 1]
 
-            if len(wp) < 2 or wp.min() == wp.max() or wpos.min() == wpos.max():
-                corrs[i] = fallback_val
-                continue
+        mask = ~np.isnan(w_price) & ~np.isnan(w_pos)
+        wp = w_price[mask]
+        wpos = w_pos[mask]
 
-            r_price = _pure_numpy_rank_1d(wp)
-            r_pos = _pure_numpy_rank_1d(wpos)
+        if len(wp) < 2 or wp.min() == wp.max() or wpos.min() == wpos.max():
+            continue
 
-            mx = r_price.mean()
-            my = r_pos.mean()
-            xm, ym = r_price - mx, r_pos - my
-            r_num = np.dot(xm, ym)
-            r_den = np.sqrt(np.dot(xm, xm) * np.dot(ym, ym))
+        r_price = _pure_numpy_rank_1d(wp)
+        r_pos = _pure_numpy_rank_1d(wpos)
 
-            corrs[i] = fallback_val if r_den == 0 else r_num / r_den
+        mx = r_price.mean()
+        my = r_pos.mean()
+        xm, ym = r_price - mx, r_pos - my
+        r_num = np.dot(xm, ym)
+        r_den = np.sqrt(np.dot(xm, xm) * np.dot(ym, ym))
 
-        return pd.Series(corrs, index=df.index)
+        corrs[i] = fallback_val if r_den == 0 else r_num / r_den
+
+    return pd.Series(corrs, index=df.index)
 
 
 def calculate_liquidity_strain_ratio_index(comm_net_col, large_net_col, lb_weeks):
@@ -292,6 +332,15 @@ def calculate_willco(col_to_search, lb_idx, cur_idx):
     cur_normalized_net = col_to_search.iloc[cur_idx]
     willco = round((cur_normalized_net - oi_min) / (oi_max - oi_min + 1e-9) * 100)
     return int(willco)
+
+
+def rolling_willco(col_to_search, lb_weeks):
+    """``calculate_willco`` at every row, in one rolling pass; see rolling_cot_index.
+
+    Differs from the COT index only in not zeroing a NaN: the per-row call raises on
+    one (int(nan)), so a NaN here is a row the old loop could never have produced.
+    """
+    return _rolling_range_pct(col_to_search, lb_weeks, zero_nan=False)
 
 
 # ── Breadth zones and regimes (vendor-published series, published cutoffs) ─────────────

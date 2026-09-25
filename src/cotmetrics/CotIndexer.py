@@ -599,25 +599,18 @@ class CotIndexer:
         LIQUIDITY_STRAIN = const.LIQUIDITY_STRAIN + const.ZSCORE + const.get_lookback_header_str(lookback)
         PRICE_HEDGING_DIV = const.PRICE_HEDGING_DIV + const.ZSCORE + const.get_lookback_header_str(lookback)
 
+        # Rolling, not a per-row loop: the loop that stood here (one df.at write plus a
+        # pandas slice min/max per cell) was ~95% of a rebuild, and a rebuild is what
+        # stands between a Friday release and the weekly email. Identical output; see
+        # indicators.rolling_cot_index.
         lb_weeks = lookback[1]
-        for idx in range(len(df)):
-            if lb_weeks < 0 or idx < lb_weeks:
-                df.at[idx, COMM_IDX] = None
-                df.at[idx, LRG_IDX] = None
-                df.at[idx, SML_IDX] = None
-                df.at[idx, COMM_NORM_IDX] = None
-                df.at[idx, LRG_NORM_IDX] = None
-                df.at[idx, SML_NORM_IDX] = None
-                df.at[idx, WILLCO] = None
-            else:
-                lb_idx = idx - lb_weeks
-                df.at[idx, COMM_IDX] = metrics.calculate_cot_index(df[const.COMM_NET], lb_idx, idx)
-                df.at[idx, LRG_IDX] = metrics.calculate_cot_index(df[const.LARGE_NET], lb_idx, idx)
-                df.at[idx, SML_IDX] = metrics.calculate_cot_index(df[const.SMALL_NET], lb_idx, idx)
-                df.at[idx, COMM_NORM_IDX] = metrics.calculate_cot_index(df[const.COMM_NET_NORM], lb_idx, idx)
-                df.at[idx, LRG_NORM_IDX] = metrics.calculate_cot_index(df[const.LARGE_NET_NORM], lb_idx, idx)
-                df.at[idx, SML_NORM_IDX] = metrics.calculate_cot_index(df[const.SMALL_NET_NORM], lb_idx, idx)
-                df.at[idx, WILLCO] = metrics.calculate_willco(df[const.COMM_PCT_OI], lb_idx, idx)
+        df[COMM_IDX] = metrics.rolling_cot_index(df[const.COMM_NET], lb_weeks)
+        df[LRG_IDX] = metrics.rolling_cot_index(df[const.LARGE_NET], lb_weeks)
+        df[SML_IDX] = metrics.rolling_cot_index(df[const.SMALL_NET], lb_weeks)
+        df[COMM_NORM_IDX] = metrics.rolling_cot_index(df[const.COMM_NET_NORM], lb_weeks)
+        df[LRG_NORM_IDX] = metrics.rolling_cot_index(df[const.LARGE_NET_NORM], lb_weeks)
+        df[SML_NORM_IDX] = metrics.rolling_cot_index(df[const.SMALL_NET_NORM], lb_weeks)
+        df[WILLCO] = metrics.rolling_willco(df[const.COMM_PCT_OI], lb_weeks)
 
         # Calculate Liquidity Strain Ratio and the Price Hedging Divergence over the entire series directly
         df[LIQUIDITY_STRAIN] = metrics.calculate_liquidity_strain_ratio_index(df[const.COMM_NET], df[const.LARGE_NET], lb_weeks)
@@ -627,22 +620,11 @@ class CotIndexer:
             df[PRICE_HEDGING_DIV] = 0.0
 
         three_year_lb_weeks = 52 * 3
-        for idx in range(len(df)):
-            if three_year_lb_weeks < 0 or idx < three_year_lb_weeks:
-                df.at[idx, const.COMM_3Y_IDX] = None
-                df.at[idx, const.COMM_3Y_IDX_NORM] = None
-            else:
-                lb_idx = idx - three_year_lb_weeks
-                df.at[idx, const.COMM_3Y_IDX] = metrics.calculate_cot_index(df[const.COMM_NET], lb_idx, idx)
-                df.at[idx, const.COMM_3Y_IDX_NORM] = metrics.calculate_cot_index(df[const.COMM_NET_NORM], lb_idx, idx)
+        df[const.COMM_3Y_IDX] = metrics.rolling_cot_index(df[const.COMM_NET], three_year_lb_weeks)
+        df[const.COMM_3Y_IDX_NORM] = metrics.rolling_cot_index(df[const.COMM_NET_NORM], three_year_lb_weeks)
 
         lrg_sentiment_lb_weeks = 15
-        for idx in range(len(df)):
-            if lrg_sentiment_lb_weeks < 0 or idx < lrg_sentiment_lb_weeks:
-                df.at[idx, const.LW_LRG_SENTIMENT] = None
-            else:
-                lb_idx = idx - lrg_sentiment_lb_weeks
-                df.at[idx, const.LW_LRG_SENTIMENT] = metrics.calculate_cot_index(df[const.LARGE_NET], lb_idx, idx)
+        df[const.LW_LRG_SENTIMENT] = metrics.rolling_cot_index(df[const.LARGE_NET], lrg_sentiment_lb_weeks)
 
         OI_ZSCORE = const.OPEN_INTEREST + const.get_lookback_header_str(lookback) + const.ZSCORE
         if const.OPEN_INTEREST_XLS in df.columns:
@@ -1314,7 +1296,9 @@ class CotIndexer:
         this from a poller instead. The call left in get_symbols_data now only covers
         the cold-start case.
 
-        Rebuilding takes ~2 minutes on the full universe, and the navbar interval fires
+        Rebuilding took ~100s on the full universe (47 markets, M-series Mac) until
+        0.14.2 made process_lookback rolling rather than per-row; it is ~12s now, and
+        several times that on the VPS's slower cores. The navbar interval fires
         once per open browser tab, so concurrent callers are ordinary rather than
         exotic. The lock makes the second caller wait for the first rather than start a
         duplicate rebuild, and the re-check under it means it then returns immediately.

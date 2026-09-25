@@ -92,3 +92,72 @@ def test_willco_at_bottom_is_0():
 def test_willco_midpoint():
     s = pd.Series([0.0, 100.0, 50.0])
     assert indicators.calculate_willco(s, 0, 2) == 50
+
+
+# ── rolling forms: must equal the per-row calls they replaced, exactly ─────────
+# process_lookback used to call calculate_cot_index / calculate_willco once per
+# row. The rolling forms exist only for speed (they were ~95% of a rebuild), so
+# the contract is equality with the per-row call at every row, NaN placement
+# included, not closeness.
+def _messy_series(n=300, seed=7):
+    rng = np.random.default_rng(seed)
+    s = pd.Series(np.round(rng.normal(0, 1000, n)))  # integer-valued, like net contracts
+    s.iloc[[3, 40, 41, 42, 150]] = np.nan              # isolated and clustered gaps
+    s.iloc[200:210] = 5.0                              # a flat stretch
+    s.iloc[60:80] = np.nan                             # a gap wider than a short window
+    return s
+
+
+@pytest.mark.parametrize("lb", [0, 1, 15, 26, 52, 156, 400])
+def test_rolling_cot_index_equals_per_row(lb):
+    s = _messy_series()
+    got = indicators.rolling_cot_index(s, lb)
+    for i in range(len(s)):
+        if i < lb:
+            assert np.isnan(got.iloc[i])
+        else:
+            assert got.iloc[i] == indicators.calculate_cot_index(s, i - lb, i), i
+
+
+def test_rolling_cot_index_negative_lookback_is_all_nan():
+    assert indicators.rolling_cot_index(_messy_series(), -1).isna().all()
+
+
+@pytest.mark.parametrize("lb", [1, 26, 52])
+def test_rolling_willco_equals_per_row(lb):
+    s = _messy_series().fillna(0.0)  # the per-row call raises on NaN
+    got = indicators.rolling_willco(s, lb)
+    for i in range(lb, len(s)):
+        assert got.iloc[i] == indicators.calculate_willco(s, i - lb, i), i
+    assert got.iloc[:lb].isna().all()
+
+
+@pytest.mark.parametrize("lb", [5, 26, 52])
+def test_spearman_matches_per_window_reference_with_gaps(lb):
+    # Leading NaN prices are the ordinary case (COT history predates the bars), and
+    # used to send the whole series down the loop. Clean windows now take the strided
+    # path; both must agree with a plain per-window reference, exactly.
+    rng = np.random.default_rng(3)
+    n = 250
+    price = pd.Series(np.round(rng.normal(100, 5, n), 2))
+    price.iloc[:40] = np.nan
+    price.iloc[[90, 91, 180]] = np.nan
+    price.iloc[120:130] = 100.0            # ties and a flat window
+    pos = pd.Series(np.round(rng.normal(0, 1000, n)))
+    pos.iloc[[60, 200]] = np.nan
+    df = pd.DataFrame({"p": price, "q": pos})
+
+    got = indicators.calculate_spearman_correlation_vectorized(df, "p", "q", lb).to_numpy()
+
+    ref = np.full(n, np.nan)
+    for i in range(lb - 1, n):
+        wp, wq = price.iloc[i - lb + 1:i + 1], pos.iloc[i - lb + 1:i + 1]
+        m = wp.notna() & wq.notna()
+        wp, wq = wp[m].to_numpy(), wq[m].to_numpy()
+        if len(wp) < 2 or wp.min() == wp.max() or wq.min() == wq.max():
+            continue
+        rp, rq = indicators._pure_numpy_rank_1d(wp), indicators._pure_numpy_rank_1d(wq)
+        xm, ym = rp - rp.mean(), rq - rq.mean()
+        den = np.sqrt(np.dot(xm, xm) * np.dot(ym, ym))
+        ref[i] = np.nan if den == 0 else np.dot(xm, ym) / den
+    np.testing.assert_array_equal(got, ref)
