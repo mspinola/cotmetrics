@@ -151,11 +151,33 @@ def project_trendline(price_col):
     return projected_y
 
 
+def rolling_trendline_projection(series, window):
+    """``project_trendline`` over every trailing window, in one vectorised pass.
+
+    For a fixed window the least-squares line through (0..n-1, y) projected to x=n
+    is a fixed linear combination of the y values: w_i = 1/n + (x_i - x̄)(n - x̄)/Sxx.
+    So the rolling fit is a dot product with those weights rather than one polyfit
+    per row, which was the largest single cost in append_trading_signals (~1/3 of
+    it: a polyfit per row per market per basis). Same NaN rule as
+    ``rolling(window).apply``: any NaN in the window gives NaN. The values agree with
+    polyfit to rounding (~1e-15 relative), not bit for bit, because lstsq sums in a
+    different order; pinned against it in tests.
+    """
+    values = series.to_numpy(dtype=float)
+    out = np.full(len(values), np.nan)
+    if window > 0 and len(values) >= window:
+        x = np.arange(window, dtype=float)
+        x_bar = x.mean()
+        weights = 1.0 / window + (x - x_bar) * (window - x_bar) / ((x - x_bar) ** 2).sum()
+        out[window - 1:] = np.lib.stride_tricks.sliding_window_view(values, window) @ weights
+    return pd.Series(out, index=series.index)
+
+
 def is_down_trend_line_break(df, price_col=const.CLOSING_PRICE, last_n_highs=5):
     is_downtrend = (df[price_col].shift(1) < df[price_col].shift(2)) & (df[price_col].shift(2) < df[price_col].shift(3))
 
     # Shift the data FIRST, then apply the rolling window.
-    projected_resistance = df[price_col].shift(1).rolling(window=last_n_highs).apply(project_trendline, raw=True)
+    projected_resistance = rolling_trendline_projection(df[price_col].shift(1), last_n_highs)
 
     # The Breakout Logic
     # Compare today's Close to projected resistance line.
