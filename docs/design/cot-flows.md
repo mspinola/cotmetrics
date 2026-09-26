@@ -3,8 +3,8 @@
 **Living document.** Plan and decision record for the week-over-week cohort flow work
 that started in
 [`analysis/2026-09-26-cot-flow-states-gold.md`](../analysis/2026-09-26-cot-flow-states-gold.md).
-Nothing described under "What to build" exists yet; the two analysis docs and the
-scripts under `scripts/analysis/` are the only artefacts. Written 2026-09-26 from a
+PR 1 to PR 3 under "What to build" are built as open PRs (cotmetrics #52, cot-analyzer
+#140 and the PR stacked on it); PR 4 is not started. Written 2026-09-26 from a
 multi-agent review of the gold study, a 42-market replication, and three competing
 integration designs judged from an engineering and a reader's lens. Amend this file as
 decisions land; the analysis docs are never amended.
@@ -362,6 +362,39 @@ graph: the report Tuesday and publication date, one sentence per opinion cohort 
 legs, the counterparty always (named per market from the roles table, with its members),
 the sum-to-zero line, the level a marked flow departed from, and the rates caveat routed
 through the role table rather than a class-name string.
+
+Built 2026-09-26 as a cot-analyzer PR stacked on PR 2, with its cotmetrics half added to
+#52 rather than a 0.15.x, since 0.15.0 is not released. What changed from the text above:
+
+- The level columns are `flows.flow_from_level_col(spec, lookback_header)` and
+  `flows.flow_level_mark_col(spec, lookback_header)`: the header rides in the name as it
+  does in `index_col`, because these are the one part of the flow family the page
+  lookback reaches, and a name without it would read as fixed like the z. The mark is
+  cotmetrics' (`level_marks`, Int64, NA in the warm-up), so the view compares nothing.
+  `DIVERGENT_FLOW_STATES` holds the twelve all-active split labels (six Disaggregated
+  names, six TFF sign strings). On Gold at its 26-week Custom lookback, 130 to 157 of
+  1,032 weeks carry a mark per cohort, and 47 weeks are split.
+- The split weeks are a tick lane above the three lanes, not a line-only box. A facet
+  column gives one to two pixels a week, where a one-pixel outline is the whole cell, and
+  in the running app the boxes painted solid bars over the lanes they were meant to frame.
+- Plotly.js draws only the subplots some trace references. The counterparty row and the
+  strip have nothing to draw outside the flow column, and the empty cells lost their
+  axes, the row label on column 1, and in the bottom row the column's dates; each empty
+  cell gets a trace with no points and no hover.
+- The strip lanes carry no tick labels in a facet cell (the reason the flow rows give);
+  they follow the opinion order cotmetrics recorded and the hover names the lane. A
+  market without a state (TFF equities, rates, crypto) gets no strip row at all rather
+  than an empty one; the caption says why, through `state_eligible`, naming ADR-0005.
+- The caption states no publication date. The resolved release date lives in cotdata's
+  vintage store, which the view does not read, and the derived Tuesday-plus-three is
+  wrong on exactly the holiday weeks; the PR 2 hover dropped the release day for the same
+  reason. It reads "positions as of" the weekday and date from the index, then one
+  sentence per opinion cohort, the counterparty with its members and whether they are
+  measured or the report default, the cohorts on neither side, the sum-to-zero line (only
+  when every cohort is in the frame), and the state or why there is none.
+- Looked at in the running app on Gold (facet with Net Positions, Positioning Index and
+  the flow panel; a phone at 375 px) and on S&P 500 (TFF, no state): the caption's net
+  changes sum to zero on both.
 
 ### PR 4, both repos: the cross-asset board
 
