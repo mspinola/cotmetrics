@@ -394,14 +394,18 @@ separate sessions.
 | market | weeks | mechanism | detection today |
 |---|---|---|---|
 | LBR | 2023-02-21, 02-28, 03-14 | new code 058644 lacks two weeks; `get_cot` keeps the primary where present and the x4-scaled predecessor elsewhere, so the population alternates | `CFTC_Contract_Market_Code_Quotes` changes; OI toggles 7,876 / 1,029 / 9,088 |
-| RTY | 2008-09-09 to 09-23 | venue migration CME to ICE, both codes carrying positions; not a seam any differencing cleans | explicit date window |
+| RTY | 2008-09-23 | venue migration CME to ICE; measured, the whole cross-population jump lands on the one row where the code switches (dealer net 129,063 on 09-09 and 113,046 on 09-16 under 239742, 184,169 on 09-23 under 23977A; the 09-09 and 09-16 diffs are ordinary weeks at z -0.70 and -0.81) | Quotes column; no date window needed |
 | RTY | 2017-08-15 | code switch back to CME 239742 after a 3,255-day hole | Quotes column |
 | ZO | ten holes over 8 days, max 294 | thin market, missing report weeks | index gap |
 | 6N | 2006-07-11 | one 28-day hole at the start | index gap |
 
-To be completed against `marketdata.read_contract_regimes` (multiplier changes) before
-PR 1 merges; the LBR x4 scale also corrupts trader counts and pct_oi on predecessor rows
-for the existing /categories page today.
+To be completed against `marketdata.read_contract_regimes` (multiplier changes); the LBR
+x4 scale also corrupts trader counts and pct_oi on predecessor rows for the existing
+/categories page today. Verified on the PR 1 build (2026-09-26): the seam mask fires on
+exactly LBR 2023-02-21, 02-28, 03-14 and RTY 2008-09-23, 2017-08-15, the gap mask on
+exactly 6N 2006-07-11, and nowhere else across the 42 markets; parity of the flow z
+against the universe parquet is exact (max difference 0.0) on the other 40 markets, and
+on those three it differs only on the masked rows and the 52 rows after each.
 
 ## 6. Open hazards, none blocking PR 1
 
