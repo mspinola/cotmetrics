@@ -1567,12 +1567,6 @@ class CotIndexer:
 
         The price columns are joined here rather than by the caller: cot-analyzer is
         a view over this package and computes nothing of its own, joining included.
-
-        Also carries the week-over-week flow columns from
-        `cotmetrics.flows.build_flow_frame` (names from its builders, window fixed at
-        const.FLOW_Z_WEEKS and independent of `lookback`) and its `flow_*` attrs.
-        Flow Thin, Flow Sign and Flow Active Count are nullable dtypes (boolean,
-        Int64) carrying pd.NA, and Flow State is object with None in the warm-up.
         """
         if report not in categories.REPORT_CHOICES:
             raise ValueError(
@@ -1615,17 +1609,6 @@ class CotIndexer:
         if frame.empty:
             return None
 
-        # The flow columns ride on the category frame rather than on a second call:
-        # cot-analyzer draws, it does not compute, so the one frame it asks for has
-        # to carry everything the page shows. The flow window is fixed inside
-        # build_flow_frame and never sees `weeks`. attrs are merged and re-attached
-        # by hand because concat drops them, the same trap the price merge below
-        # and the set_index at the end both handle.
-        flow = flows.build_flow_frame(frame, report, symbol=instrument.symbol)
-        attrs = {**frame.attrs, **flow.attrs}
-        frame = pd.concat([frame, flow], axis=1)
-        frame.attrs = attrs
-
         if with_price:
             price_cols = [const.OPEN_PRICE, const.HIGH_PRICE,
                           const.LOW_PRICE, const.CLOSING_PRICE]
@@ -1648,6 +1631,37 @@ class CotIndexer:
         # is why get_symbols_data does the same thing at the end.
         frame.attrs = attrs
         return frame
+
+    @lru_cache(maxsize=64)
+    def get_speculator_data(self, name, lookback="Custom"):
+        """The market's one role series, for the Positioning Index panel.
+
+        Built on `get_category_data` (Disaggregated where the market has it, else
+        TFF) and `cotmetrics.flows`: the speculator net (the measured SPEC group in
+        `flow_roles`), its range index at `lookback` (the same "26" / "52" / "Custom"
+        string, same window rule as every other index), its weekly flow z (fixed
+        52-week window, never `lookback`), and the retail (Non-Reportable) net.
+        Indexed by Date like get_symbols_data. attrs carry "flow_roles" (the table
+        entry, as a dict), "speculator_label" (its members, joined with " + ", or
+        None where the market has no speculator role), "lookback_header" and
+        "lookback_weeks". Returns None when the market has neither report.
+
+        Where the table names no speculator (ZT on the committed measurement) the
+        speculator columns are absent and the view falls back to Legacy
+        Non-Commercial, which it already draws.
+        """
+        instrument = self.get_instrument_from_name(name)
+        if instrument is None:
+            return None
+        reports = [r for r in categories.REPORT_CHOICES
+                   if r in self.available_reports_for(name)]
+        if not reports:
+            return None
+        report = reports[0]
+        frame = self.get_category_data(name, report, lookback, with_price=False)
+        if frame is None or frame.empty:
+            return None
+        return flows.speculator_frame(frame, report, symbol=instrument.symbol)
 
     def get_available_dates(self):
         if not self.asset_class_map or not self.instruments:
