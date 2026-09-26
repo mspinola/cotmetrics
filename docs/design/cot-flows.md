@@ -3,8 +3,12 @@
 **Living document.** Plan and decision record for the week-over-week cohort flow work
 that started in
 [`analysis/2026-09-26-cot-flow-states-gold.md`](../analysis/2026-09-26-cot-flow-states-gold.md).
-PR 1 to PR 3 under "What to build" are built as open PRs (cotmetrics #52, cot-analyzer
-#140 and #141 stacked on it); PR 4 is not started. Written 2026-09-26 from a
+Scope cut back the same evening by the handoff's "Scope, restated" block to PR 1 and
+PR 2 only: cotmetrics #52 (the primitive, the per-market rows with one Commercials row on
+GC, SI, PL, PA, and the mockup's decile marker, `flows.level_marks`) and cot-analyzer
+#140, which is now the three-panel Flow view of the mockup and nothing else. The PR 3
+material described below (strip, caption, prior-week 20/80 markers, facet flow rows) was
+built as #141, then withdrawn and closed; the text stays as the record of it. Written 2026-09-26 from a
 multi-agent review of the gold study, a 42-market replication, and three competing
 integration designs judged from an engineering and a reader's lens. Amend this file as
 decisions land; the analysis docs are never amended.
