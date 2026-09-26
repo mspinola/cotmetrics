@@ -312,6 +312,17 @@ parquet, and the numbers above are what it printed against the PR 1 worktree.
   the heatmap under hovermode `x unified` beside the Scattergl panels, the one-row facet
   cell at `FACET_ROW_HEIGHT` 120, phone width. The prototype in section 7 answers the first
   two for a standalone figure; the in-stack render still has to be looked at.
+- Built 2026-09-26 (cot-analyzer PR, draft until cotmetrics #52 merges) and looked at in
+  the running app on Gold. Four things the in-stack render decided beyond the prototype:
+  the composite's tick label must be the bare word "Counterparty" with the members named
+  in the hover, because plotly's automargin sized every panel in the stack to the long
+  label; facet cells and phones get no cell gap (a facet column is a fraction of the
+  figure width, so a one-pixel gap was half of each week) and facet cells drop their tick
+  labels (the axis title already names the row); the hover reads the weekday and date off
+  the index rather than saying Tuesday, since holiday weeks are not Tuesdays; and the
+  identity-palette check has one documented exception, the Solarized palette, whose
+  cyan is the diverging pair's own colour. The unified hover box in the stack lists the
+  hovered cell only, with the date header, which reads fine.
 
 ### PR 3, cot-analyzer: the state strip, the level markers and the caption
 
