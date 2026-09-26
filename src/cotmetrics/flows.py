@@ -39,12 +39,6 @@ three pillars on 2026-09-26 (design doc, "The study: run, failed, closed"). Noth
 here carries a forward return or a verdict word, and nothing in `signals`,
 `conditions`, `models` or `synthesis` reads these columns.
 
-The level columns are the one place the page lookback DOES reach, on purpose: a flow
-cell is read against where the cohort's positioning stood the week before it moved
-(design doc, PR 3), and that level is the range index the page already draws, so one
-page never shows two levels for one cohort. Their names carry the lookback infix, as
-`categories.index_col` does, and the flow z beside them still does not.
-
 Held out on purpose, per the design doc's PR 1 scope: dGross and the straddle flag,
 the derisk flag (fixed multipliers designed on gold, untested elsewhere), any forward
 return, any state NAME for TFF (the sign string renders until a TFF vocabulary is
@@ -78,17 +72,6 @@ DISAGG_FLOW_STATES = {
 
 _SIGN_GLYPH = {1: "+", -1: "-", 0: "0"}
 
-# Every state whose three opinion cohorts are all active and do not all agree: the
-# gold doc's "mixed signs", the weeks the heatmap exists to make visible, as opposed
-# to BROAD_ACCUM / BROAD_LIQUID where everyone moved together. Holds the Disaggregated
-# names and the TFF sign strings, so a view can test membership without knowing which
-# report it is drawing. Vocabulary for boxing a week, not a signal.
-DIVERGENT_FLOW_STATES = frozenset(
-    [name for triple, name in DISAGG_FLOW_STATES.items() if len(set(triple)) > 1]
-    + [",".join(_SIGN_GLYPH[s] for s in triple)
-       for triple in DISAGG_FLOW_STATES if len(set(triple)) > 1]
-)
-
 
 # --- column-name builders -------------------------------------------------------
 # The UI never spells a flow column itself. It asks for one of these.
@@ -115,14 +98,6 @@ def flow_thin_col(spec):
 
 def flow_sign_col(spec):
     return spec.prefix + const.FLOW_SIGN
-
-
-def flow_from_level_col(spec, lookback_header):
-    return spec.prefix + lookback_header + const.FLOW_FROM_LEVEL
-
-
-def flow_level_mark_col(spec, lookback_header):
-    return spec.prefix + lookback_header + const.FLOW_LEVEL_MARK
 
 
 def counterparty_flow_col():
@@ -233,37 +208,12 @@ def flow_state(sign_trend, sign_value, sign_retail, report):
     return out
 
 
-def level_marks(z, from_level, threshold=const.FLOW_ACTIVE_Z,
-                low=const.FLOW_LEVEL_LOW, high=const.FLOW_LEVEL_HIGH):
-    """1 where an active flow left the top of the range, -1 the bottom, else 0.
-
-    Active is the classifier's strict |z| > threshold; top and bottom are strict
-    `from_level > high` and `from_level < low`. The direction of the mark is the
-    level's, not the flow's: a cohort selling from the top and one buying from the
-    top both get 1, and the cell's colour already says which way it moved. NA
-    wherever either input is missing, so the warm-up and the masked weeks carry no
-    mark rather than a 0 that reads as "mid-range".
-
-    Context for reading a cell and nothing more: the level x flow cells behind the
-    cutoffs were descriptive, on gold alone, uncorrected (design doc, PR 3).
-    """
-    z = pd.Series(z, dtype=float)
-    lvl = pd.Series(from_level, dtype=float, index=z.index)
-    active = (z.abs() > threshold).to_numpy()
-    out = pd.Series(0, index=z.index, dtype="Int64")
-    out[active & (lvl > high).to_numpy()] = 1
-    out[active & (lvl < low).to_numpy()] = -1
-    out[(z.isna() | lvl.isna()).to_numpy()] = pd.NA
-    return out
-
-
 def build_flow_frame(category_frame, report, symbol=None):
     """The flow columns for one market, on the category frame's index.
 
     Args:
         category_frame: what `categories.build_category_frame` returned. Only its
-            net / long / short columns, when present const.SOURCE_CODE, and the
-            range index at attrs["lookback_header"] are read.
+            net / long / short columns and, when present, const.SOURCE_CODE are read.
         report: categories.REPORT_DISAGG or REPORT_TFF.
         symbol: the market's symbol ("GC"), which selects the per-market roles from
             `flow_roles`. None or an unmeasured symbol gets the per-report default.
@@ -275,11 +225,7 @@ def build_flow_frame(category_frame, report, symbol=None):
         present, "Counterparty dNet" and its z. Then per opinion cohort present a
         "Flow Sign" (Int64), and when all three opinion cohorts are present the
         active count and, on a state-eligible market only, the "Flow State".
-        Last, per category whose range index the frame carries (it needs
-        attrs["lookback_header"], which build_category_frame stamps), the prior
-        week's index as "<prefix><header> Flow From Level" and the Int64
-        `level_marks` of the z against it. attrs carry every parameter and the
-        roles used.
+        attrs carry every parameter and the roles used.
 
     The seam mask applies to all three differences of a category, not only dNet: the
     legs come from the same contract population as the net.
@@ -327,28 +273,10 @@ def build_flow_frame(category_frame, report, symbol=None):
         if roles.state_eligible:
             out[const.FLOW_STATE] = flow_state(*signs, report=report)
 
-    # The level a week's flow departed from: the range index one report earlier.
-    # Shifted by row, not by date, the same row step the diff takes, so a masked
-    # week's level is still written (its z is NaN, so it carries no mark).
-    header = category_frame.attrs.get("lookback_header")
-    if header is not None:
-        for spec in specs:
-            idx = categories.index_col(spec, header)
-            if idx not in category_frame.columns:
-                continue
-            prior = category_frame[idx].shift(1)
-            out[flow_from_level_col(spec, header)] = prior
-            out[flow_level_mark_col(spec, header)] = level_marks(
-                out[flow_z_col(spec)], prior)
-
     out.attrs["flow_window"] = window
     out.attrs["flow_min_periods"] = min_periods
     out.attrs["flow_max_gap_days"] = const.FLOW_MAX_GAP_DAYS
     out.attrs["flow_threshold"] = const.FLOW_ACTIVE_Z
-    out.attrs["flow_level_low"] = const.FLOW_LEVEL_LOW
-    out.attrs["flow_level_high"] = const.FLOW_LEVEL_HIGH
-    out.attrs["flow_level_header"] = header
-    out.attrs["flow_level_weeks"] = category_frame.attrs.get("lookback_weeks")
     out.attrs["flow_roles"] = {
         "report": roles.report,
         "symbol": symbol,

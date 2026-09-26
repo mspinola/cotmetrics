@@ -1571,10 +1571,8 @@ class CotIndexer:
         Also carries the week-over-week flow columns from
         `cotmetrics.flows.build_flow_frame` (names from its builders, window fixed at
         const.FLOW_Z_WEEKS and independent of `lookback`) and its `flow_*` attrs.
-        Flow Thin, Flow Sign, Flow Active Count and Flow Level Mark are nullable
-        dtypes (boolean, Int64) carrying pd.NA, and Flow State is object with None in
-        the warm-up. The level columns (Flow From Level, Flow Level Mark) are the one
-        part of the flow family that DOES follow `lookback`, and carry its header.
+        Flow Thin, Flow Sign and Flow Active Count are nullable dtypes (boolean,
+        Int64) carrying pd.NA, and Flow State is object with None in the warm-up.
         """
         if report not in categories.REPORT_CHOICES:
             raise ValueError(

@@ -180,20 +180,11 @@ def test_swap_underscore_spellings_give_identical_flows():
 
 
 def test_window_is_fixed_regardless_of_page_lookback():
-    """OJ's Custom lookback is 8 weeks and PA's is 216, and neither may reach the z.
-
-    Everything except the level columns, which follow the page lookback by design
-    and say so in their names (see the level tests below).
-    """
+    """OJ's Custom lookback is 8 weeks and PA's is 216, and neither may reach the z."""
     raw = _frame(DISAGG, n=80)
     a = _flow(DISAGG, raw, lookback=8)
     b = _flow(DISAGG, raw, lookback=216)
-
-    def unlevelled(f):
-        return f[[c for c in f.columns
-                  if const.FLOW_FROM_LEVEL not in c and const.FLOW_LEVEL_MARK not in c]]
-
-    pd.testing.assert_frame_equal(unlevelled(a), unlevelled(b))
+    pd.testing.assert_frame_equal(a, b)
     z_cols = [c for c in a.columns if const.FLOW_Z in c]
     assert z_cols and all(c.endswith("Flow Z 52w") for c in z_cols)
     assert a.attrs["flow_window"] == 52
@@ -205,77 +196,6 @@ def test_no_flow_column_collides_with_a_category_column():
         cat = _cat(report)
         out = flows.build_flow_frame(cat, report)
         assert not set(out.columns) & set(cat.columns)
-
-
-
-# --- the level a flow departed from ----------------------------------------------
-
-def test_from_level_is_the_prior_rows_range_index_at_the_page_lookback():
-    cat = _cat(DISAGG, _frame(DISAGG, n=80), lookback=26)
-    out = flows.build_flow_frame(cat, DISAGG)
-    header = cat.attrs["lookback_header"]
-    for spec in categories.present_categories(cat, DISAGG):
-        got = out[flows.flow_from_level_col(spec, header)]
-        want = cat[categories.index_col(spec, header)].shift(1)
-        pd.testing.assert_series_equal(got, want, check_names=False)
-        assert header in flows.flow_from_level_col(spec, header)
-    assert out.attrs["flow_level_header"] == header
-    assert out.attrs["flow_level_weeks"] == 26
-    assert (out.attrs["flow_level_low"], out.attrs["flow_level_high"]) == (20, 80)
-
-
-def test_level_follows_the_lookback_while_the_z_does_not():
-    raw = _frame(DISAGG, n=120)
-    a, b = _cat(DISAGG, raw, lookback=8), _cat(DISAGG, raw, lookback=52)
-    fa, fb = flows.build_flow_frame(a, DISAGG), flows.build_flow_frame(b, DISAGG)
-    mm = _spec(DISAGG, "managed_money")
-    pd.testing.assert_series_equal(fa[flows.flow_z_col(mm)], fb[flows.flow_z_col(mm)])
-    la = fa[flows.flow_from_level_col(mm, a.attrs["lookback_header"])]
-    lb = fb[flows.flow_from_level_col(mm, b.attrs["lookback_header"])]
-    both = la.notna() & lb.notna()
-    assert both.any() and not np.allclose(la[both], lb[both])
-
-
-def test_no_level_columns_without_a_lookback_header():
-    cat = _cat(DISAGG)
-    cat.attrs.pop("lookback_header")
-    out = flows.build_flow_frame(cat, DISAGG)
-    assert not [c for c in out.columns if const.FLOW_FROM_LEVEL in c]
-    assert not [c for c in out.columns if const.FLOW_LEVEL_MARK in c]
-    assert out.attrs["flow_level_header"] is None
-
-
-def test_level_marks_are_strict_directional_by_level_and_na_preserving():
-    z = pd.Series([2.0, -2.0, 2.0, -2.0, 1.0, 0.5, 2.0, 2.0, np.nan, 2.0])
-    lvl = pd.Series([90, 90, 10, 10, 90, 5, 80, 20, 90, np.nan], dtype=float)
-    got = flows.level_marks(z, lvl)
-    assert got.dtype == "Int64"
-    # selling and buying from the top both mark 1; the cell's colour gives direction
-    assert got.iloc[:8].tolist() == [1, 1, -1, -1, 0, 0, 0, 0]
-    assert pd.isna(got.iloc[8]) and pd.isna(got.iloc[9])
-
-
-def test_level_marks_reach_the_frame_and_are_na_in_the_warm_up():
-    cat = _cat(DISAGG, _frame(DISAGG, n=120), lookback=26)
-    out = flows.build_flow_frame(cat, DISAGG)
-    header = cat.attrs["lookback_header"]
-    for spec in categories.present_categories(cat, DISAGG):
-        mark = out[flows.flow_level_mark_col(spec, header)]
-        want = flows.level_marks(out[flows.flow_z_col(spec)],
-                                 out[flows.flow_from_level_col(spec, header)])
-        pd.testing.assert_series_equal(mark, want, check_names=False)
-        assert mark.iloc[:26].isna().all()
-
-
-def test_divergent_states_are_the_mixed_all_active_triples_on_both_reports():
-    div = flows.DIVERGENT_FLOW_STATES
-    assert len(div) == 12
-    assert "VALUE_ACCUM" in div and "-,+,-" in div
-    for name in ("BROAD_ACCUM", "BROAD_LIQUID", "+,+,+", "-,-,-",
-                 flows.FLOW_STATE_QUIET, flows.FLOW_STATE_PARTIAL):
-        assert name not in div
-    for triple, name in flows.DISAGG_FLOW_STATES.items():
-        assert (name in div) == (len(set(triple)) > 1)
 
 
 # --- the classifier -------------------------------------------------------------

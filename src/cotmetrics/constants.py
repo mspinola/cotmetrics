@@ -101,15 +101,11 @@ COUNTERPARTY = "Counterparty"   # prefix for the per-market composite, like a ca
 FLOW_STATE = "Flow State"       # the eight-name vocabulary; a label, never a signal
 FLOW_N_ACTIVE = "Flow Active Count"  # opinion cohorts past the threshold this week
 SOURCE_CODE = "Source Code"     # which CFTC contract code a row came from (seam mask)
-FLOW_FROM_LEVEL = " Flow From Level"  # the PRIOR week's range index, at the page lookback
-FLOW_LEVEL_MARK = " Flow Level Mark"  # 1 / -1 / 0: an active flow leaving the top / bottom
 FLOW_Z_WEEKS = 52               # docs/analysis/2026-09-26-cot-flow-states-gold.md, Z_WIN
 FLOW_Z_MIN_PERIODS = 26         # same doc, Z_MIN: half the window before a reading prints
 FLOW_ACTIVE_Z = 1.0             # same doc, Z_ACT: strict |z| > 1 is "active"
 FLOW_MAX_GAP_DAYS = 8           # docs/design/cot-flows.md section 5: a missed report week
 FLOW_MIN_STD_CONTRACTS = 200    # docs/design/cot-flows.md section 6: LBR and OJ cohorts
-FLOW_LEVEL_LOW = 20             # docs/design/cot-flows.md PR 3: the Cowork mockup's cutoffs,
-FLOW_LEVEL_HIGH = 80            # restated, unsearched; strict, like FLOW_ACTIVE_Z
 
 LB_CUSTOM = " Custom"
 LB_26 = " 26"
