@@ -256,6 +256,24 @@ inherited, and returns only new columns on the same index.
   editable install before `scripts/check_dep_floors.py` or it fails against an unchanged
   tree.
 
+**Parity of the built module, measured 2026-09-26.** `build_category_frame` then
+`build_flow_frame(..., symbol=sym)` on every one of the 42 non-heldout markets (23
+Disaggregated, 19 TFF), the three opinion cohorts' `Flow Z 52w` columns (managed money /
+other reportable / non-reportable on Disaggregated, leveraged / asset manager /
+non-reportable on TFF, the universe script's own mapping) against the universe parquet's
+`z_TREND` / `z_VALUE` / `z_RETAIL` on matching dates. Exact (max |diff| 0.0, no NaN-pattern
+mismatch) on 40 of 42. The two mask rules of section 5 fire on three markets and nowhere
+else, and every difference sits on a masked row or inside the 52 rows after it, where the
+rolling sd counts one fewer observation: LBR (seam rows 2023-02-21, 02-28, 03-14; max
+|diff| 6.8e-1 in the shadow, 8.9e-16 outside), RTY (seam rows 2008-09-23 and 2017-08-15;
+7.8e-1 in the shadow, 3.1e-14 outside), 6N (the 28-day hole at 2006-07-11, the only index
+gap over 8 days in the universe; 5.1e-2 in the shadow, 2.2e-15 outside). No other market
+has a `_Quotes` code change, a NaN in that column, or a gap over 8 days; the six-day and
+eight-day report gaps every market carries are unmasked, as designed. ZO is not in the
+universe, so its ten holes were not exercised. Reproducer: a throwaway script, not
+committed; the loop is twelve lines over `cotdata.get_cot`, the two builders and the
+parquet, and the numbers above are what it printed against the PR 1 worktree.
+
 ### PR 2, cot-analyzer: one panel on /categories
 
 - `category_traces.CATEGORY_SPECS["flow"]`, appended last, `SECONDARY_NEVER`, plus the
