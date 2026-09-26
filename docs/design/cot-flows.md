@@ -4,7 +4,7 @@
 that started in
 [`analysis/2026-09-26-cot-flow-states-gold.md`](../analysis/2026-09-26-cot-flow-states-gold.md).
 PR 1 to PR 3 under "What to build" are built as open PRs (cotmetrics #52, cot-analyzer
-#140 and the PR stacked on it); PR 4 is not started. Written 2026-09-26 from a
+#140 and #141 stacked on it); PR 4 is not started. Written 2026-09-26 from a
 multi-agent review of the gold study, a 42-market replication, and three competing
 integration designs judged from an engineering and a reader's lens. Amend this file as
 decisions land; the analysis docs are never amended.
@@ -353,9 +353,11 @@ are context for reading a cell, and no caption may say what follows a flow from 
 extreme; the level x flow cells were descriptive and continuation-direction on gold
 alone, and any claim goes through the same ledger and the same judge as the states did.
 The mockup's three-panel layout (price with open interest above, the flow heatmap with
-markers, the positioning index lines below) is the facet layout with plots set to flow
-and index plus the price row, which PR 2 already gives; nothing new is needed for the
-third panel.
+markers, the positioning index lines below) is a layout of its own. An earlier version
+of this paragraph said the facet layout with flow and index selected already gave it;
+it does not (facets put one cohort per row and one panel per column), and the reader
+who asked for the mockup found the difference on the running page. Built as the Flow
+view, below.
 
 **The caption.** A store-free `flow_copy.py` that writes the week in words under the
 graph: the report Tuesday and publication date, one sentence per opinion cohort with both
@@ -392,9 +394,30 @@ Built 2026-09-26 as a cot-analyzer PR stacked on PR 2, with its cotmetrics half 
   sentence per opinion cohort, the counterparty with its members and whether they are
   measured or the report default, the cohorts on neither side, the sum-to-zero line (only
   when every cohort is in the frame), and the state or why there is none.
-- Looked at in the running app on Gold (facet with Net Positions, Positioning Index and
-  the flow panel; a phone at 375 px) and on S&P 500 (TFF, no state): the caption's net
-  changes sum to zero on both.
+- The Flow view: a third Layout choice on /categories that is the mockup. Price with
+  open interest dotted on a second axis, every selected cohort's flow z with the
+  counterparty row and the markers, every cohort's positioning index, three full-width
+  panels on one time axis with dates under the bottom one. The index panel is shaded
+  above 80 and below 20 in this view only, as the key to the triangles; the Positioning
+  Index panel elsewhere stays unshaded. No cell gap in its heatmap (at full width a
+  one-pixel gap a week read as a comb). The plot selector and Cols grey out while it is
+  chosen. Differences from the mockup: the level is the page's tuned lookback, not a
+  fixed 156 weeks, so on Gold (26 weeks) the index panel is five busy lines; no
+  colorbar (the panel title states the scale); no composite index line for the
+  counterparty, since cotmetrics has no range index of a composite.
+- The counterparty in small multiples sits directly under the cohorts. Where it is one
+  cohort already drawn (DOW and most TFF markets, and every report default) no composite
+  row repeats it; that cohort's row is titled "(counterparty)". Found on DOW, where the
+  composite row sat under price and open interest and was the first row again.
+- An independent review (13 real markets) found the caption printing figures that do
+  not sum to zero under the line saying they do, where a cohort is measured into both
+  the opinion and counterparty sets (Other Reportable on silver, copper and orange
+  juice); the caption now says that cohort is counted on both sides. Also fixed from it:
+  the clientside autoscale flipped the strip on a zoom to the start of history, and z
+  and level rounding could contradict the words at the cutoffs.
+- Looked at in the running app on Gold (Flow view; facet with Net Positions, Positioning
+  Index and the flow panel; a phone at 375 px), S&P 500 and DOW (TFF, no state): the
+  caption's net changes sum to zero on each week read.
 
 ### PR 4, both repos: the cross-asset board
 
