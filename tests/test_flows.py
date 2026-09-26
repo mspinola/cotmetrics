@@ -259,12 +259,40 @@ def test_level_marks_reach_the_frame_and_are_na_in_the_warm_up():
     cat = _cat(DISAGG, _frame(DISAGG, n=120), lookback=26)
     out = flows.build_flow_frame(cat, DISAGG)
     header = cat.attrs["lookback_header"]
+    seen = set()
     for spec in categories.present_categories(cat, DISAGG):
         mark = out[flows.flow_level_mark_col(spec, header)]
         want = flows.level_marks(out[flows.flow_z_col(spec)],
                                  out[flows.flow_from_level_col(spec, header)])
         pd.testing.assert_series_equal(mark, want, check_names=False)
         assert mark.iloc[:26].isna().all()
+        seen |= set(mark.dropna().astype(int))
+    # Not a vacuous comparison: the frame carries marks of both directions.
+    assert {-1, 1} <= seen
+
+
+def test_seam_week_writes_its_level_and_carries_no_mark():
+    raw = _frame(DISAGG, n=120)
+    raw["CFTC_Contract_Market_Code_Quotes"] = ["058643"] * 90 + ["058644"] * 30
+    cat = _cat(DISAGG, raw, lookback=26)
+    out = flows.build_flow_frame(cat, DISAGG)
+    header = cat.attrs["lookback_header"]
+    for spec in categories.present_categories(cat, DISAGG):
+        assert pd.notna(out[flows.flow_from_level_col(spec, header)].iloc[90])
+        assert pd.isna(out[flows.flow_level_mark_col(spec, header)].iloc[90])
+
+
+def test_level_marks_refuses_misaligned_inputs():
+    dated = pd.Series([2.0, 2.0, 2.0], index=pd.date_range("2024-01-02", periods=3,
+                                                           freq="7D"))
+    with pytest.raises(ValueError):
+        flows.level_marks(dated, pd.Series([90.0, 90.0, 90.0]))
+    with pytest.raises(ValueError):
+        flows.level_marks([2.0, 2.0], [90.0])
+    # A list against a dated Series pairs by position and keeps the dates.
+    got = flows.level_marks([2.0, 2.0, 2.0], dated * 45)
+    assert got.tolist() == [1, 1, 1]
+    assert got.index.equals(dated.index)
 
 
 def test_divergent_states_are_the_mixed_all_active_triples_on_both_reports():

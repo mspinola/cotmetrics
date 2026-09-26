@@ -246,9 +246,26 @@ def level_marks(z, from_level, threshold=const.FLOW_ACTIVE_Z,
 
     Context for reading a cell and nothing more: the level x flow cells behind the
     cutoffs were descriptive, on gold alone, uncorrected (design doc, PR 3).
+
+    The level is the range index, which is not seam-masked: on a stitched market
+    (LBR's 2023 code switches) the index window straddles the seam until it rolls
+    past it, and the level and marks inherit that, exactly as the Index panel does.
+
+    Two Series must share an index, and a Series paired with an array must match its
+    length; anything else raises rather than aligning to all-NA.
     """
-    z = pd.Series(z, dtype=float)
-    lvl = pd.Series(from_level, dtype=float, index=z.index)
+    if isinstance(z, pd.Series) and isinstance(from_level, pd.Series):
+        if not z.index.equals(from_level.index):
+            raise ValueError("level_marks: z and from_level have different indexes")
+        z, lvl = z.astype(float), from_level.astype(float)
+    else:
+        index = (z.index if isinstance(z, pd.Series)
+                 else from_level.index if isinstance(from_level, pd.Series) else None)
+        zv = np.asarray(z, dtype=float)
+        lv = np.asarray(from_level, dtype=float)
+        if zv.shape != lv.shape:
+            raise ValueError(f"level_marks: lengths differ ({len(zv)} vs {len(lv)})")
+        z, lvl = pd.Series(zv, index=index), pd.Series(lv, index=index)
     active = (z.abs() > threshold).to_numpy()
     out = pd.Series(0, index=z.index, dtype="Int64")
     out[active & (lvl > high).to_numpy()] = 1
