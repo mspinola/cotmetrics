@@ -88,6 +88,25 @@ NORMALIZED = " Norm"
 ZSCORE = " Zscore"
 MOMENTUM = " Move"
 
+# Week-over-week cohort flows (cotmetrics.flows). Column suffixes first, then the
+# parameters. Every parameter below was fixed before any result was read and has
+# never been searched; the doc that fixed it is named beside it.
+FLOW = " dNet"                  # net position change, contracts, one report week
+FLOW_LONG = " dLong"            # long leg change, contracts
+FLOW_SHORT = " dShort"          # short leg change, contracts
+FLOW_Z = " Flow Z"              # dNet / its own rolling sd; the window rides in the name
+FLOW_THIN = " Flow Thin"        # rolling sd under FLOW_MIN_STD_CONTRACTS: read the count
+FLOW_SIGN = " Flow Sign"        # -1 / 0 / 1 against FLOW_ACTIVE_Z, NA in the warm-up
+COUNTERPARTY = "Counterparty"   # prefix for the per-market composite, like a category prefix
+FLOW_STATE = "Flow State"       # the eight-name vocabulary; a label, never a signal
+FLOW_N_ACTIVE = "Flow Active Count"  # opinion cohorts past the threshold this week
+SOURCE_CODE = "Source Code"     # which CFTC contract code a row came from (seam mask)
+FLOW_Z_WEEKS = 52               # docs/analysis/2026-09-26-cot-flow-states-gold.md, Z_WIN
+FLOW_Z_MIN_PERIODS = 26         # same doc, Z_MIN: half the window before a reading prints
+FLOW_ACTIVE_Z = 1.0             # same doc, Z_ACT: strict |z| > 1 is "active"
+FLOW_MAX_GAP_DAYS = 8           # docs/design/cot-flows.md section 5: a missed report week
+FLOW_MIN_STD_CONTRACTS = 200    # docs/design/cot-flows.md section 6: LBR and OJ cohorts
+
 LB_CUSTOM = " Custom"
 LB_26 = " 26"
 LB_52 = " 52"
