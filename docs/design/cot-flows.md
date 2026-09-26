@@ -3,15 +3,26 @@
 **Living document.** Plan and decision record for the week-over-week cohort flow work
 that started in
 [`analysis/2026-09-26-cot-flow-states-gold.md`](../analysis/2026-09-26-cot-flow-states-gold.md).
-Scope cut back the same evening by the handoff's "Scope, restated" block to PR 1 and
-PR 2 only: cotmetrics #52 (the primitive, the per-market rows with one Commercials row on
-GC, SI, PL, PA, and the mockup's decile marker, `flows.level_marks`) and cot-analyzer
-#140, which is now the three-panel Flow view of the mockup and nothing else. The PR 3
-material described below (strip, caption, prior-week 20/80 markers, facet flow rows) was
-built as #141, then withdrawn and closed; the text stays as the record of it. Written 2026-09-26 from a
-multi-agent review of the gold study, a 42-market replication, and three competing
-integration designs judged from an engineering and a reader's lens. Amend this file as
-decisions land; the analysis docs are never amended.
+Amend this file as decisions land; the analysis docs are never amended.
+
+**Current scope (v2, 2026-09-26 evening).** One role series per market, added to the
+existing Positioning Index panel on /analysis: the positioning index of the cohorts
+measured to act as the market's speculator, one strip of that speculator's weekly flow z
+under it, and retail named by how it behaves. The authoritative spec is "Scope, restated
+v2" at the top of `docs/handoffs/2026-09-26-cot-flow-states-cross-universe.md`, with its
+sketch `analysis/2026-09-26-cot-one-role-view.png`. It is built as cotmetrics #52 and
+cot-analyzer #142 (section 3). Everything this plan designed before v2 (per-cohort
+heatmap rows, the counterparty composite row, the eight state names on screen, level
+markers, the week-in-words caption, the three-panel Flow view, the cross-asset board)
+was built or specified, reviewed on the running page and withdrawn; section 3 keeps a
+short record, and the full specs are in this file's git history on the #51 branch
+(commit cb19a5a and earlier). Section 2's measurements stand unchanged.
+
+Why one series: every long is somebody's short, so the counterparty's net is the mirror
+of the speculator's plus whatever the neutral cohorts did, and a counterparty row repeats
+the speculator row; neutral cohorts do not move with price by construction of the role
+rule, so they are noise on a chart read against price. On review the four-row heatmap
+collapsed nothing and four index lines read as random.
 
 ## 1. What exists
 
@@ -22,8 +33,9 @@ decisions land; the analysis docs are never amended.
 | section "The handoff's scope" of the universe doc + `scripts/analysis/cot_flow_states_scope.py` | the same parquet cut to ADR-0005's universe with and without gold, and re-anchored at the first settlement after the resolved release date | point in time, 9-entry search log |
 | `scripts/analysis/critique_2026-09-26/` | the reproducers behind the methodology corrections in section 2 (overlap inflation, block bootstrap, Tuesday-to-Friday leg, run lengths, seams, normalisers, basis disagreement), each with its printed output beside it | committed so the figures below can be quoted |
 | `analysis/2026-09-26-cot-cohort-roles.md` + `scripts/analysis/cot_cohort_roles.py` + two CSVs | per-(report, symbol) cohort roles from the data: SPEC / COUNTERPARTY / NEUTRAL / inert / RETAIL by same-week price correlation of dNet and gross share, threshold 0.15 fixed in advance; the Prod/Swap same-sign measurement that motivated it | point in time, Cowork session, sandbox paths in the script; measured on the cache close (see the next row); stability over time not measured there |
-| `analysis/2026-09-26-cot-cohort-roles-propadj.md` + `scripts/analysis/cot_cohort_roles_propadj.py` + three CSVs (roles, collapse, stability) | the same rule on the ratio-adjusted series, the changes against the cache-close table, and a rolling 156-week stability check with a criterion fixed before the run | point in time; the source of `src/cotmetrics/flow_roles.py` (PR 1) via `scripts/analysis/gen_flow_roles.py` |
+| `analysis/2026-09-26-cot-cohort-roles-propadj.md` + `scripts/analysis/cot_cohort_roles_propadj.py` + three CSVs (roles, collapse, stability) | the same rule on the ratio-adjusted series, the changes against the cache-close table, and a rolling 156-week stability check with a criterion fixed before the run | point in time; the source of `src/cotmetrics/flow_roles.py` (cotmetrics #52) via `scripts/analysis/gen_flow_roles.py` |
 | `analysis/2026-09-26-cot-roles-vs-legacy.csv` + `scripts/analysis/cot_roles_vs_legacy.py`, and the `-propadj` pair | weekly-flow correlation of the measured SPEC and COUNTERPARTY groups with Legacy Non-Commercial and Commercial | Cowork (cache roles) and this session (propadj roles); see the Legacy bullet in section 2 |
+| `analysis/2026-09-26-cot-one-role-view.png` + `scripts/analysis/cot_one_role_view.py` | the v2 sketch: per market, price with open interest, the speculator net's index with a thin retail line, and one speculator flow-z strip, on GC, ZC, 6E and ES | Cowork session, sandbox paths in the script; draws from the cache-close collapse table and a fixed 3-year index, where the built view uses the propadj table and the page lookback (section 3; decision 2, section 4) |
 | `docs/handoffs/2026-09-26-cot-flow-states-cross-universe.md` | the Cowork session's handoff asking for the cross-universe run, with a level x flow addendum and a proposed three-panel view | executed twice on 2026-09-26: descriptively in the main checkout (status update at its end) and as the pre-registered crucible test on the branch below; the branch carries its own copy of this file with an Outcome section, so the two copies must be merged by hand |
 | branch `claude/cot-flow-states-cross-universe` (local, unpushed, two commits 12:18 and 12:22): `analysis/2026-09-26-cot-flow-states-cross-universe.md` + `scripts/analysis/cot_flow_states_cross_universe.py` | the pre-registered evaluator pass: VALUE_ACCUM long, 13 weeks, 32-market ADR-0005 scope, non-overlapping vol-normalised drift-removed trades in a crucible TradeLog, holdout at 2019-01-01 with an 8-week embargo, run_gauntlet with a 63-entry log seeded from the descriptive pass | done by a third session; design committed before the run; verdict FAIL 0 of 3 gates, TEST +0.124R on 85 trades with the interval spanning zero |
 
@@ -32,9 +44,18 @@ decisions land; the analysis docs are never amended.
 - **Flow.** A cohort's week-over-week change in net futures position, dNet = (long minus
   short).diff(), in contracts. **Flow z** is that change divided by the cohort's own
   trailing 52-week standard deviation of weekly changes, no mean subtracted.
-- **Opinion cohorts.** The three whose flow signs make the state: Managed Money, Other
-  Reportable and Non-Reportable on Disaggregated; Leveraged Funds, Asset Manager and
-  Non-Reportable on TFF. Fixed per report so the eight state names keep one meaning.
+- **Speculator.** The cohort, or set of cohorts, whose weekly buying moves WITH the
+  week's price (same-week correlation of dNet with the return above 0.15, gross share over
+  5%), measured per market on the ratio-adjusted series: Managed Money on 21 of the 23
+  Disaggregated markets (Swap Dealers plus Managed Money on HE, Managed Money plus Other
+  Reportable on LBR); Asset Manager alone on 10 TFF markets, Asset Manager plus Leveraged
+  Funds on 6 (the major currencies), Leveraged Funds on 6M, Dealer plus Asset Manager on
+  ETH; none on ZT. The one series the display draws. Source:
+  `analysis/2026-09-26-cot-cohort-collapse-propadj.csv`, committed as
+  `cotmetrics.flow_roles`.
+- **Opinion cohorts.** (Withdrawn with the state display.) The three whose flow signs made
+  the state: Managed Money, Other Reportable and Non-Reportable on Disaggregated;
+  Leveraged Funds, Asset Manager and Non-Reportable on TFF.
 - **Counterparty.** The cohort, or set of cohorts, that takes the other side of the opinion
   cohorts' flow: the group whose weekly buying moves against the week's price (same-week
   correlation of dNet with the return at or below -0.15) and whose flow correlates
@@ -45,19 +66,22 @@ decisions land; the analysis docs are never amended.
   "Commercial") in precious metals, Producer/Merchant alone in most grains, softs and
   livestock (where swap dealers carry the index book and are neutral), Other Reportable
   plus Producer on a few, Dealer/Intermediary in currencies, Leveraged Funds on equity
-  index and crypto (their hedge and basis book). The heatmap's composite row is the sum of
-  dNet over the counterparty members; it equals minus the opinion cohorts' flow only where
-  no neutral or inert cohort sits outside both sets. Contemporaneous by construction:
+  index and crypto (their hedge and basis book). Recorded in `flow_roles` and drawn
+  nowhere since v2: the counterparty's net is the speculator's mirror plus the neutral
+  residual, so a counterparty series repeats the speculator series. Contemporaneous by
+  construction:
   "absorbs" says who was on the other side this week, not what happens next.
 - **Neutral.** A cohort with a meaningful share of gross open interest whose flow does not
   correlate with price either way (the swap dealers' index book in grains). Kept as its
   own row, never folded into either side.
 - **Inert.** Under 5% of gross open interest; its flow is drawn but it plays no role.
-- **Retail.** Non-Reportable, by label. On the Cowork measurement (cache close, being
-  re-measured on the ratio-adjusted series) its flow chases price on 25 of 41 markets, is
-  neutral on 13 and absorbs on 3, so the label is a category, not a behaviour.
+- **Retail.** Non-Reportable, by label. On the propadj measurement its flow moves with
+  price on 26 of 42 markets, is neutral on 12 and moves against price on 4, so the label
+  is a category, not a behaviour; the display names the behaviour per market. On
+  /analysis it is the Legacy Non-Reportable line already drawn, the same data.
 - **State.** The sign triple of the opinion cohorts at |z| > 1, named on Disaggregated
-  with the gold vocabulary. A caption, not a signal; the pre-registered test failed.
+  with the gold vocabulary. Its pre-registered test failed; since v2 it appears on no
+  surface and cotmetrics no longer computes it.
 
 ## 2. What the measurements settled
 
@@ -178,268 +202,113 @@ source.
   on the named-state label for 14.8% of pooled market-weeks (critique: `state_basis.py`).
   The classifier's basis (contracts) is a fixed, logged choice, not an invariance.
 - **Managed-money flow coincides with the week's own price move** (corr +0.55 on gold,
-  same week). The heatmap will look like it predicts the price panel above it. Whether a
+  same week). The flow strip (the heatmap before v2) will look like it predicts the price
+  it is drawn against. Whether a
   state adds anything beyond the concurrent weekly return has not been tested on any
   market (open, section 6).
 
-## 3. What to build, in order
+## 3. What is built (v2)
 
-Merged from the two judged designs (the minimal one and the reader-first one; the
-cross-asset-board design contributes the copy rules and the later board). Each PR ships
-without the next.
+Two PRs, cotmetrics first. Both are drafts until #51 (this doc and the analysis files it
+cites) merges; cot-analyzer #142 stays red on `check_dep_floors` until #52 is released.
 
-### PR 1, cotmetrics 0.15.0: `src/cotmetrics/flows.py`
+### cotmetrics #52, 0.15.0: `FlowRoles`, the resolvers and `flow_z`
 
-Pure and store-free, imports only pandas, numpy, `cotmetrics.constants` and
-`cotmetrics.categories`. Takes the OUTPUT of `categories.build_category_frame` so the
-Swap_/Swap__ resolution, dtype coercion, skipped categories and `present_categories` are
-inherited, and returns only new columns on the same index.
+Additive; nothing in `signals`, `conditions`, `models`, `movers` or `synthesis` reads it.
 
-- Constants (in `constants.py` beside `NET_POS`): `FLOW = " dNet"`, `FLOW_LONG = " dLong"`,
-  `FLOW_SHORT = " dShort"`, `FLOW_Z = " Flow Z"`, `FLOW_THIN = " Flow Thin"`,
-  `FLOW_Z_WEEKS = 52`, `FLOW_Z_MIN_PERIODS = 26`, `FLOW_ACTIVE_Z = 1.0`,
-  `FLOW_MAX_GAP_DAYS = 8`, `FLOW_MIN_STD_CONTRACTS = 200`. Every one recorded in the
-  docstring as fixed before results and unsearched. The window rides in the z column name
-  (`"Managed Money Flow Z 52w"`) so it cannot be mistaken for the page-lookback infix that
-  `index_col` and `zscore_col` carry: the page lookback is 8 weeks on OJ and 216 on PA and
-  must never reach the flow window.
-- `weekly_change(series, *, max_gap_days)`: `diff()` masked where the index gap exceeds
-  8 days and where the source contract code changes (see discontinuities, section 5).
-- `flow_z(series, window=52, min_periods=26)`: `series / sd.where(sd > 0)`. No mean
-  subtraction, no epsilon, no fillna. Tested as the inverse of
-  `test_z_score_constant_series_is_zero_and_no_nan`.
-- `build_flow_frame(category_frame, report, symbol=None)`: per present category dNet,
-  dLong, dShort, Flow Z, Flow Thin (rolling sd below 200 contracts: dims, never blanks);
-  plus the counterparty composite from a `FlowRoles` table (data, not branches), keyed by
-  (report, symbol) with a per-report default, so the precious-metals grouping does not
-  leak into grains (section 2, cohort roles). The per-symbol entries live in a generated
-  data module (`flow_roles.py`) with the measurement date, the threshold and the source
-  doc recorded beside them, and they come from the roles re-measured on the propadj
-  series (`analysis/2026-09-26-cot-cohort-roles-propadj.md`; the Cowork measurement read
-  the parquet's `close`, which is the cache close, so HO, RB and OJ had a fifth to a third
-  of their history and every physical's correlation was attenuated; LBR's 215 weeks are
-  the bar history itself, Norgate's LBR series starting 2022-08-08). Only the 21 markets
-  whose counterparty set is stable on rolling 156-week windows (criterion fixed before
-  the run: the set equals the full-history set in at least 60% of windows over at least
-  8 windows) carry measured roles; the other 21 fall back to the per-report default with
-  the source recorded as such. Per-report defaults (decision 6, taken 2026-09-26):
-  disagg counterparty = producer_merchant alone with swap neutral, opinion =
-  (managed_money, other_reportable, nonreportable); tff counterparty = dealer, opinion =
-  (leveraged, asset_manager, nonreportable), residual = other_reportable. The
-  precious-metals grouping (producer_merchant + swap) survives only as the MEASURED entry
-  of the markets where the swap dealers absorb flow (GC, PA, PL, SI, and with Other
-  Reportable HG, SB, SI, HO). The opinion triple that
-  feeds the state is the per-report default everywhere (the branch's test and the
-  universe run used it, so the vocabulary keeps its meaning); the measured roles change
-  only the counterparty composite and the NEUTRAL set. Each entry carries
-  `state_eligible`: True on Disaggregated and on TFF currencies, False on equities, rates
-  and crypto (ADR-0005 decision 1), so those markets get z cells and no state. Drift alarm
-  test: every category of `categories_for(report)` is in exactly one of counterparty,
-  opinion, neutral, inert, residual. Identity test: the sum of dNet over every category
-  is exactly zero, and the composite equals the sum of its members.
-- Classifier: `flow_signs(z_frame, threshold=FLOW_ACTIVE_Z)` returning {-1, 0, 1, <NA>}
-  and `flow_state(...)` returning an object Series with None wherever any input is NA
-  (never QUIET in the warm-up), styled on `indicators.fomo_zones` / `net_highs_regime`
-  (a published cutoff restated, not a verdict). Not in `models.py` (frozen validated
-  (basis, gate, band) bundles with book provenance), not in `signals.py` or
-  `conditions.py` (they feed the tape bias), no `SETUP_*` constant. The eight disagg names
-  ship as the caption vocabulary; TFF renders the sign tuple until a TFF vocabulary is
-  proposed, and Fixed Income gets z cells and no state (ADR-0005: the leveraged against
-  asset-manager pair is one basis trade).
-- Held out of 0.15.0: dGross, straddle, derisk (fixed 2x / 1x multipliers designed on
-  gold, untested anywhere; the swap-dealer reading behind derisk holds in six markets and
-  not the other seventeen), any forward return, any state name for TFF.
-- Exposure: one concat inside `CotIndexer.get_category_data` after `build_category_frame`
-  and before the price merge, attrs re-attached. No new lru_cache key, no signature change,
-  no parquet cache involvement (the cache is RAM only). Reconciliation tests that are free:
-  disagg counterparty dNet equals the Legacy `COMM_NET.diff()` and nonreportable dNet
-  equals `SMALL_NET.diff()`, byte-exact on every market probed.
-- Tests: `tests/test_flows.py`, store-free, reusing `test_categories._frame`; the list in
-  the judged designs is the spec (identity, min_periods NaN count, zero-sd NaN, gap mask,
-  seam mask, roles cover every category once, window fixed regardless of lookback, no
-  column collision, warm-up state None). `test_categories.py` must not need editing.
-- Version 0.14.4 to 0.15.0; not re-exported from `__init__` (categories is not either).
-  cot-analyzer's floor moves only in the PR that imports `cotmetrics.flows`; refresh the
-  editable install before `scripts/check_dep_floors.py` or it fails against an unchanged
-  tree.
+- **`cotmetrics.flow_roles`**, generated by `scripts/analysis/gen_flow_roles.py` from
+  `analysis/2026-09-26-cot-cohort-collapse-propadj.csv` (threshold 0.15, gross-share
+  floor 0.05, measured 2026-09-26, recorded in the module): a frozen `FlowRoles` per
+  (report, symbol) naming the speculator, counterparty, neutral and inert cohorts and the
+  retail behaviour; `roles_for(report, symbol)` returns the measured entry or the report
+  default (Managed Money on Disaggregated, Leveraged Funds on TFF) and never raises. All
+  42 measured markets carry their measured speculator; the rolling-window stability check
+  (section 2) was a criterion for the counterparty set and is not applied to it.
+  `gen_flow_roles.py --check` fails if the committed module differs from a regeneration.
+- **`cotmetrics.flows`**: `weekly_change` (dNet, NaN across an index gap over 8 days and
+  across a change in `CFTC_Contract_Market_Code_Quotes`, which `build_category_frame` now
+  carries as `Source Code`; section 5), `flow_z` (dNet over its own rolling 52-week sd, min
+  26, no mean subtracted, NaN rather than 0 under min_periods and on a zero sd; not
+  `indicators.calculate_z_score`, which mean-subtracts and fills 0), `speculator_net` and
+  `retail_net` (sums of category nets; None where the table names no speculator or a
+  named cohort is missing, since a partial sum would be a different series under the same
+  name), and `speculator_frame`, which assembles "Speculator Net", "Speculator<header>
+  Idx" (the range index at the page lookback, window lookback + 1 as for every category),
+  "Speculator dNet", "Speculator Flow Z 52w" and "Retail Net", with the roles in attrs.
+  The flow window is fixed and rides in the column name; the page lookback reaches the
+  index and never the z.
+- **`CotIndexer.get_speculator_data(name, lookback)`**: that frame, built on
+  `get_category_data` (Disaggregated where the market has it, else TFF), indexed by Date,
+  lru-cached. `get_category_data` itself is unchanged from main.
+- Verified: store-free suite 517 passed, 3 skipped (main 498); on the live store Gold's
+  speculator net equals its Managed Money net exactly, and Gold, Corn and Euro read
+  Managed Money, Managed Money and Asset Manager + Leveraged Funds.
 
-**Parity of the built module, measured 2026-09-26.** `build_category_frame` then
-`build_flow_frame(..., symbol=sym)` on every one of the 42 non-heldout markets (23
-Disaggregated, 19 TFF), the three opinion cohorts' `Flow Z 52w` columns (managed money /
-other reportable / non-reportable on Disaggregated, leveraged / asset manager /
-non-reportable on TFF, the universe script's own mapping) against the universe parquet's
-`z_TREND` / `z_VALUE` / `z_RETAIL` on matching dates. Exact (max |diff| 0.0, no NaN-pattern
-mismatch) on 40 of 42. The two mask rules of section 5 fire on three markets and nowhere
-else, and every difference sits on a masked row or inside the 52 rows after it, where the
-rolling sd counts one fewer observation: LBR (seam rows 2023-02-21, 02-28, 03-14; max
-|diff| 6.8e-1 in the shadow, 8.9e-16 outside), RTY (seam rows 2008-09-23 and 2017-08-15;
-7.8e-1 in the shadow, 3.1e-14 outside), 6N (the 28-day hole at 2006-07-11, the only index
-gap over 8 days in the universe; 5.1e-2 in the shadow, 2.2e-15 outside). No other market
-has a `_Quotes` code change, a NaN in that column, or a gap over 8 days; the six-day and
-eight-day report gaps every market carries are unmasked, as designed. ZO is not in the
-universe, so its ten holes were not exercised. Reproducer: a throwaway script, not
-committed; the loop is twelve lines over `cotdata.get_cot`, the two builders and the
-parquet, and the numbers above are what it printed against the PR 1 worktree.
+### cot-analyzer #142: the Positioning Index panel on /analysis
 
-### PR 2, cot-analyzer: one panel on /categories
+- The raw-basis Positioning Index panel of the single-market stack gains
+  **"Speculator (members)"**, the speculator's index at the page's per-symbol lookback,
+  in palette slot 5 (distinct from the three Legacy legs in every shipped palette), drawn
+  over the Legacy Commercial, Non-Commercial and Non-Reportable lines already there.
+- **One flow-z strip** inside the same panel, below its zero (the index axis widens to
+  -17, ticks stay on 0 to 100 plus a "flow z" tick at the strip): the speculator's weekly
+  flow z, a true diverging scale with zero barely lifted off the panel background, one sd
+  a muted blue or red and three sd saturated, clipped at 3, opacity 1. The hover gives
+  the z and the net contracts.
+- **Retail as a label, not a line**: a one-line note in the panel names the speculator
+  and says how retail behaves on the market ("moves with price here", "does not move with
+  price here", "moves against price here"). ZT, with no speculator, gets no line and no
+  strip, and the note says Non-Commercial stands in.
+- The page asks cotmetrics for the frame only when a raw index panel is drawn; the % of
+  OI and Raw vs %OI variants and the market grid view are unchanged.
+- The clientside autoscale leaves any axis carrying a heatmap alone, so the index panel
+  keeps its 0 to 100 scale on zoom (fitting it to the lines in a zoomed window cut the
+  strip off).
+- Verified: suite 909 passed (897 on main), store-free tests including one that drives
+  the real stack callback; looked at in the running app on Gold, Corn and Euro.
 
-- `category_traces.CATEGORY_SPECS["flow"]`, appended last, `SECONDARY_NEVER`, plus the
-  mandatory `_PANEL_COLUMNS` entry (facet `shared_range` KeyErrors without it) and a
-  `_FACET_BUILDERS` entry drawing a one-row heatmap per category cell. `DEFAULT_PLOTS`
-  stays `["net_pos", "index"]` until a release has been read on the panel.
-- One `go.Heatmap`: x = report Tuesdays, y = selected categories in report order PLUS the
-  counterparty composite row always (the reader rule that answers the newsletter failure:
-  the other side is never off the page), z clipped for display at +/-3, zmid 0, xgap and
-  ygap 1, `hoverongaps=False` so warm-up and masked weeks stay blank, no colorbar (the
-  stack's 10px right margin clips one; the panel title states the scale). Hover carries
-  the week in words: cohort, report Tuesday with "published Friday", net change in
-  contracts, longs and shorts, z against the cohort's own 52-week sd. Thin cells dim (alpha
-  in the cell, hover says "read the count, not the z") rather than blank.
-- Colour: never an identity palette slot (all six slots mean a cohort or a series);
-  polarity from the validated `CATEGORY_DIVERGING_UP` / `DOWN` pair. Prototype rendered
-  2026-09-26 (section 7) decides between a grey midpoint composited over the background
-  and a dead band that paints |z| < 1 as background; the dead band hard-codes the
-  unsearched 1.0 threshold into the picture, so the grey midpoint is the default unless
-  the render says otherwise.
-- Copy rule, held by a test: never the words "mover", "biggest move" or "unusual" beside a
-  flow z, and one sentence distinguishing index-point moves of the Legacy Commercial index
-  (the Home board) from contract flows of a cohort scaled by its own history.
-- Inherits the stack's x window (156 weeks desktop, 52 mobile), rangeselector, x sharing
-  and mobile chrome. The lookback control does not move the flow window; the title says
-  so.
-- Tests: `test_every_panel_draws_a_trace_per_category` gains a heatmap branch (not
-  weakened); the new tests in the judged designs (report order, diverging pair and clip,
-  warm-up blank, hover names both legs, counterparty row always drawn, one-row facet cell).
-  Extend the test `_frame` with the flow builders so a builder reading a missing column
-  fails in CI, not in production.
-- Browser checks before merge, with the `cot-analyzer` preview on :5001 (no hot reload):
-  the heatmap under hovermode `x unified` beside the Scattergl panels, the one-row facet
-  cell at `FACET_ROW_HEIGHT` 120, phone width. The prototype in section 7 answers the first
-  two for a standalone figure; the in-stack render still has to be looked at.
-- Built 2026-09-26 (cot-analyzer PR, draft until cotmetrics #52 merges) and looked at in
-  the running app on Gold. Four things the in-stack render decided beyond the prototype:
-  the composite's tick label must be the bare word "Counterparty" with the members named
-  in the hover, because plotly's automargin sized every panel in the stack to the long
-  label; facet cells and phones get no cell gap (a facet column is a fraction of the
-  figure width, so a one-pixel gap was half of each week) and facet cells drop their tick
-  labels (the axis title already names the row); the hover reads the weekday and date off
-  the index rather than saying Tuesday, since holiday weeks are not Tuesdays; and the
-  identity-palette check has one documented exception, the Solarized palette, whose
-  cyan is the diverging pair's own colour. The unified hover box in the stack lists the
-  hovered cell only, with the date header, which reads fine.
+### Where the build departs from the v2 block, and why
 
-### PR 3, cot-analyzer: the state strip, the level markers and the caption
+- **The propadj roles table, not the cache-close one the block names.** The cache close
+  is additively back-adjusted (non-positive on 11 of 23 physicals), truncated HO, RB and
+  OJ to a fifth to a third of their history, and attenuated every physical's
+  correlation. The two tables name a different speculator on 7 of 41 markets (CL, HE, HO,
+  LBR, 6A, 6S, ZF); on propadj only ZT has no speculator, where the block lists CL, ZF
+  and ZT. The user chose propadj on 2026-09-26.
+- **The page lookback, not a fixed 3-year index.** As the v1 block also required: one page
+  never shows two levels for one cohort.
+- **Retail is a label**, because on /analysis the Legacy Non-Reportable line is the same
+  data; a second line would sit exactly on it.
+- **No 20/80 bands** on the index panel; it keeps its existing threshold shading.
+- **Not built:** the Legacy back-fill of the speculator series before 2006 where
+  `analysis/2026-09-26-cot-roles-vs-legacy-propadj.csv` clears about 0.85 (open, section 4).
 
-After PR 2 has been seen on a real release. Three pieces.
+### Withdrawn on review, 2026-09-26 (record)
 
-**The state strip.** In facet mode a three-lane strip under the price row (signs coloured
-by the diverging pair, zero as `DIM_TEXT`, NA blank), with the divergence states (mixed
-signs, as the gold doc asked, not ALL_BUY or ALL_SELL) boxed line-only and captioned "a
-vocabulary label, not a signal".
+Each was built or specified, looked at on the running page, and withdrawn by the user.
+Full specs, render findings and review fixes are in this file's history on the #51 branch.
 
-**The level markers**, from the Cowork mockup (`analysis/2026-09-26-cot-view-proposed-gold.png`
-and the level x flow addendum in the handoff): a flow cell needs its level. On gold the
-same managed-money buying week was worth about half a percent from mid-range and over
-three percent from the top of the range (24 cells, no correction, a twenty-year bull
-market: a continuation-direction lean and nothing more). The heatmap gets a marker trace:
-a triangle in a cell whose flow is active (|z| > 1) and whose cohort's positioning index
-in the PRIOR week, the level the flow departs from, was below `FLOW_LEVEL_LOW` = 20
-(down-pointing) or above `FLOW_LEVEL_HIGH` = 80 (up-pointing). The two cutoffs are the
-mockup's, recorded as unsearched (its legend says decile, its cells used 20 and 80; the
-plan takes 20 and 80). The level is the range index the page already carries,
-`categories.index_col(spec, lookback_header)`, at the page's tuned per-symbol lookback
-rather than the mockup's fixed 156 weeks, so one page never shows two different levels
-for one cohort; the caption names the window. cotmetrics side (0.15.x, additive):
-`flows.flow_from_level_col(spec)`, the prior week's range index, emitted by
-`build_flow_frame` when the index column is present, so the view shifts nothing itself.
-Hover on a marked cell adds "from level 87 of the <n>-week range". Copy rule: the markers
-are context for reading a cell, and no caption may say what follows a flow from an
-extreme; the level x flow cells were descriptive and continuation-direction on gold
-alone, and any claim goes through the same ledger and the same judge as the states did.
-The mockup's three-panel layout (price with open interest above, the flow heatmap with
-markers, the positioning index lines below) is a layout of its own. An earlier version
-of this paragraph said the facet layout with flow and index selected already gave it;
-it does not (facets put one cohort per row and one panel per column), and the reader
-who asked for the mockup found the difference on the running page. Built as the Flow
-view, below.
-
-**The caption.** A store-free `flow_copy.py` that writes the week in words under the
-graph: the report Tuesday and publication date, one sentence per opinion cohort with both
-legs, the counterparty always (named per market from the roles table, with its members),
-the sum-to-zero line, the level a marked flow departed from, and the rates caveat routed
-through the role table rather than a class-name string.
-
-Built 2026-09-26 as a cot-analyzer PR stacked on PR 2, with its cotmetrics half added to
-#52 rather than a 0.15.x, since 0.15.0 is not released. What changed from the text above:
-
-- The level columns are `flows.flow_from_level_col(spec, lookback_header)` and
-  `flows.flow_level_mark_col(spec, lookback_header)`: the header rides in the name as it
-  does in `index_col`, because these are the one part of the flow family the page
-  lookback reaches, and a name without it would read as fixed like the z. The mark is
-  cotmetrics' (`level_marks`, Int64, NA in the warm-up), so the view compares nothing.
-  `DIVERGENT_FLOW_STATES` holds the twelve all-active split labels (six Disaggregated
-  names, six TFF sign strings). On Gold at its 26-week Custom lookback, 130 to 157 of
-  1,032 weeks carry a mark per cohort, and 47 weeks are split.
-- The split weeks are a tick lane above the three lanes, not a line-only box. A facet
-  column gives one to two pixels a week, where a one-pixel outline is the whole cell, and
-  in the running app the boxes painted solid bars over the lanes they were meant to frame.
-- Plotly.js draws only the subplots some trace references. The counterparty row and the
-  strip have nothing to draw outside the flow column, and the empty cells lost their
-  axes, the row label on column 1, and in the bottom row the column's dates; each empty
-  cell gets a trace with no points and no hover.
-- The strip lanes carry no tick labels in a facet cell (the reason the flow rows give);
-  they follow the opinion order cotmetrics recorded and the hover names the lane. A
-  market without a state (TFF equities, rates, crypto) gets no strip row at all rather
-  than an empty one; the caption says why, through `state_eligible`, naming ADR-0005.
-- The caption states no publication date. The resolved release date lives in cotdata's
-  vintage store, which the view does not read, and the derived Tuesday-plus-three is
-  wrong on exactly the holiday weeks; the PR 2 hover dropped the release day for the same
-  reason. It reads "positions as of" the weekday and date from the index, then one
-  sentence per opinion cohort, the counterparty with its members and whether they are
-  measured or the report default, the cohorts on neither side, the sum-to-zero line (only
-  when every cohort is in the frame), and the state or why there is none.
-- The Flow view: a third Layout choice on /categories that is the mockup. Price with
-  open interest dotted on a second axis, every selected cohort's flow z with the
-  counterparty row and the markers, every cohort's positioning index, three full-width
-  panels on one time axis with dates under the bottom one. The index panel is shaded
-  above 80 and below 20 in this view only, as the key to the triangles; the Positioning
-  Index panel elsewhere stays unshaded. No cell gap in its heatmap (at full width a
-  one-pixel gap a week read as a comb). The plot selector and Cols grey out while it is
-  chosen. Differences from the mockup: the level is the page's tuned lookback, not a
-  fixed 156 weeks, so on Gold (26 weeks) the index panel is five busy lines; no
-  colorbar (the panel title states the scale); no composite index line for the
-  counterparty, since cotmetrics has no range index of a composite.
-- The counterparty in small multiples sits directly under the cohorts. Where it is one
-  cohort already drawn (DOW and most TFF markets, and every report default) no composite
-  row repeats it; that cohort's row is titled "(counterparty)". Found on DOW, where the
-  composite row sat under price and open interest and was the first row again.
-- An independent review (13 real markets) found the caption printing figures that do
-  not sum to zero under the line saying they do, where a cohort is measured into both
-  the opinion and counterparty sets (Other Reportable on silver, copper and orange
-  juice); the caption now says that cohort is counted on both sides. Also fixed from it:
-  the clientside autoscale flipped the strip on a zoom to the start of history, and z
-  and level rounding could contradict the words at the cutoffs.
-- Looked at in the running app on Gold (Flow view; facet with Net Positions, Positioning
-  Index and the flow panel; a phone at 375 px), S&P 500 and DOW (TFF, no state): the
-  caption's net changes sum to zero on each week read.
-
-### PR 4, both repos: the cross-asset board
-
-`cotmetrics.reports.get_flow_board(report)` beside `get_matrix_data`, feeding a new
-/flows page (an AG Grid first, sortable for free; a rows-by-cohorts figure later), Asset
-links to `/categories?asset=`, warmed after divergence, `get_category_data`'s lru_cache
-raised to 128 in the same PR. Measured cost of the sweep: 0.7 s cold, 0.07 s warm over 42
-markets. It does not fit /heatmap (Legacy-leg grid), /strip (0-100 index axis) or the Home
-movers (index-point WoW of the Commercial leg, a different quantity). The universe doc's
-board PNG is the picture to match.
+- **Per-cohort flow columns on /categories and the Weekly Flow heatmap panel** (first
+  cut of #52 and cot-analyzer #140): one heatmap row per category plus a counterparty
+  composite row, a grey-midpoint diverging scale. The composite repeated a category row
+  on every one-member market (DOW's Dealer row twice), and a muted scale with no anchor
+  at zero hid the moves the panel existed for.
+- **State strip, level markers, week-in-words caption** (cot-analyzer #141, closed): the
+  eight state names on screen, triangles at 20/80 of the prior week's index, sentences per
+  cohort. On review the scope was cut back to the panel alone; a caption that counted a
+  cohort on both sides (Other Reportable on SI, HG, OJ) was among the review findings.
+- **The three-panel Flow view** (#140 rebuilt): price, a collapsed-row heatmap (one
+  Commercials row on GC, SI, PL, PA) with the mockup's decile markers, the rows' index
+  lines. Withdrawn by v2: the rows collapsed nothing, and four index lines read as random.
+- **The cross-asset board** (never built).
 
 ### The study: run, failed, closed
 
 The pre-registered test was run by a separate session on 2026-09-26 (branch
 `claude/cot-flow-states-cross-universe`, design committed before the run) and failed the
 gauntlet on all three pillars. Nothing in cotmetrics or cot-analyzer may carry a forward
-return or a verdict word beside a state; the heatmap and the vocabulary ship as a picture
-of the primitive, which was their justification from the gold doc onward. If anyone
+return or a verdict word; the speculator line and its flow strip are a picture of
+the data, which was the justification for the display from the gold doc onward. If anyone
 reopens the question, the branch names the one honest next step (the same state,
 commodities only, judged on data after 2026-09-26) and every look already taken is in
 the two search logs plus the branch's 63-entry log. Generator and evaluator stay in
@@ -447,43 +316,37 @@ separate sessions.
 
 ## 4. Decisions the human owns
 
-1. Whether the eight state names ship in cotmetrics 0.15.0 as caption vocabulary, or only
-   the sign tuple. Recommendation: names, disagg only, documented as vocabulary.
-2. The TFF counterparty row: dealer alone (the universe run's mapping, and what the FX
-   correlations support) or the identity complement (everyone who is not an opinion
-   cohort). Recommendation: dealer, with the ADR-0005 drift written up beside the ADR.
-3. Straddle and derisk: hold out of 0.15.0 (recommended) or ship as flagged, untested
-   labels.
-4. The seam fix: a cotdata stitch rule (primary wins an overlap only inside a continuous
-   run; LBR collapses to one seam) versus a cotmetrics-side mask on the Quotes column.
-   Recommendation: both, cotdata first, recorded in `docs/design/amendments-cotdata.md`.
-5. Whether "uninformative" joins the three strength words in npf/AGENTS.md #9;
+Taken:
+
+1. **One role series per market** ("Scope, restated v2", 2026-09-26 evening): the
+   speculator's index plus one flow-z strip on the existing /analysis Positioning Index
+   panel; no heatmap grid, no state strip, no Flow view, no cross-asset board. This closes
+   the earlier questions about shipping the eight state names (they appear nowhere), the
+   TFF counterparty row, and straddle and derisk (none shipped).
+2. **The roles table is the propadj measurement**, not the cache-close table the v2 block
+   names (reasons in section 3). Taken by the user on 2026-09-26.
+3. **The panel is the /analysis one**, the Legacy page's Positioning Index, rather than
+   the /categories index panel. Taken by the user on 2026-09-26.
+4. **`FlowRoles` keyed per (report, symbol)** from the measured table, with the
+   measurement date and threshold beside it, generated, never typed. (The earlier decision
+   6 on the Disaggregated counterparty fallback, Producer/Merchant alone, is recorded in
+   the table's counterparty field and drawn nowhere.)
+
+Open:
+
+5. **The Legacy back-fill**: extend the speculator series before 2006 from Legacy
+   Non-Commercial where `analysis/2026-09-26-cot-roles-vs-legacy-propadj.csv` clears
+   about 0.85 (physicals ex-energy, major FX), and nowhere else. Named in v2, not built.
+6. **The seam fix upstream**: a cotdata stitch rule (primary wins an overlap only inside
+   a continuous run; LBR collapses to one seam) beside the cotmetrics-side mask that
+   ships. Recommendation: both, cotdata first, recorded in
+   `docs/design/amendments-cotdata.md`.
+7. **"Uninformative"** as a fourth strength word in npf/AGENTS.md #9;
    `crowdmon/DEPRECATED.md` already uses it and this plan does too.
-6. Whether `FlowRoles` is keyed per symbol from the measured table (recommended: the
-   collapse CSV committed as data with threshold and measurement date beside it, NEUTRAL
-   kept as its own row and excluded from state classification) or stays per report with
-   the precious-metals grouping applied everywhere. A rolling-window stability check on
-   the assignments is the prerequisite for the per-symbol option. Done 2026-09-26
-   (`analysis/2026-09-26-cot-cohort-roles-propadj.md`): 21 of 42 pass, and PR 1 ships
-   measured roles for exactly those. Decided the same day, on that evidence: (a) the
-   Disaggregated fallback is Producer/Merchant alone with the swap dealers neutral, because
-   Producer/Merchant is the counterparty in at least two thirds of the rolling windows on
-   every physical and the swap dealers on the nine markets that fail (CC, CL, GF, HE, HO,
-   NG, RB, SB, ZW) swing between neutral, speculator and counterparty; a fallback is the
-   conservative core, and every cohort is still drawn as its own row. The two choices give
-   nearly the same composite flow on seven of the nine (correlation with Legacy Commercial
-   0.80 to 0.96) and differ where it matters, NG and CL. (b) GC keeps its measured entry
-   (Producer/Merchant plus Swap Dealers is right for gold and would be lost on the new
-   default); LBR's measured set equals the new default, so its nine-window pass changes
-   nothing. Shipped in PR #52.
-7. Repository hygiene for the untracked artefacts: commit the two analysis docs, the JSONs,
-   the search logs, the scripts and the PNGs; do not commit the 4.2 MB universe parquet
-   (regenerable in 5 s from the command in the doc; add it to `.gitignore`). The branch
-   `claude/cot-flow-states-cross-universe` already commits the gold doc, the gold script,
-   an older copy of `cot_flow_states_universe.py` and its own copy of the handoff; merging
-   it into main will collide with the untracked copies of those four files in the main
-   checkout (the handoff copies differ in substance: addenda here, an Outcome there).
-   Resolve by hand before either side is committed further.
+8. **Repository hygiene**: the main checkout still holds untracked copies of files
+   committed on #51 and on origin/main (and the v1 and v2 scope blocks exist only in the
+   main checkout's copy of the handoff); they must be reconciled by hand before a pull of
+   main, and the 4.2 MB universe parquet stays uncommitted (`.gitignore`).
 
 ## 5. Discontinuities the primitive must refuse
 
@@ -497,13 +360,14 @@ separate sessions.
 
 To be completed against `marketdata.read_contract_regimes` (multiplier changes); the LBR
 x4 scale also corrupts trader counts and pct_oi on predecessor rows for the existing
-/categories page today. Verified on the PR 1 build (2026-09-26): the seam mask fires on
+/categories page today. Verified on the first PR 1 build (2026-09-26, per-cohort z through the same
+`weekly_change` the speculator z now uses): the seam mask fires on
 exactly LBR 2023-02-21, 02-28, 03-14 and RTY 2008-09-23, 2017-08-15, the gap mask on
 exactly 6N 2006-07-11, and nowhere else across the 42 markets; parity of the flow z
 against the universe parquet is exact (max difference 0.0) on the other 40 markets, and
 on those three it differs only on the masked rows and the 52 rows after each.
 
-## 6. Open hazards, none blocking PR 1
+## 6. Open hazards, none blocking the v2 build
 
 - Point in time: vintages exist only from 2026-07-31 and the frozen-2025 tripwire has
   been blind since 2026-08-01, so a CFTC reclassification restating cohort levels would
@@ -513,18 +377,28 @@ on those three it differs only on the masked rows and the 52 rows after each.
 - Concurrent return: corr(z of managed money, same-week return) is +0.55 on gold. Before
   any pre-registration, tabulate VALUE_ACCUM's after-release excess within terciles of the
   concurrent weekly return from the universe parquet (one logged look).
-- Basis: emit `dPct` and `z_dPct` from `pct_oi_col` as well, same function on two columns,
-  following the page's two-panel convention; the 14.8% label disagreement goes in the help
-  fold.
+- Basis: the speculator series is contracts-basis and is drawn on the raw index panel
+  only; a % of OI version (same function on `pct_oi_col`) would be needed before it can
+  sit on the OI-normalised panel.
 - Multiplicity: the unit of a variant is one (state, horizon, pool, basis, anchor) cell
   tabulated. The two search logs count looks by market and by cut; before a gauntlet,
   backfill a ledger at cell granularity.
-- Small OI: LBR and OJ cohorts have 52-week sd under 200 contracts today; the thin flag
-  dims them and the board should sort them last.
+- Small OI: LBR's and OJ's cohorts have a 52-week sd of weekly changes under 200
+  contracts, so a z there is large on small counts. The v1 thin flag was withdrawn with
+  the heatmap; the strip's hover prints the contracts beside the z.
 
-## 7. Render check, 2026-09-26
+## 7. Render checks, 2026-09-26
 
-A throwaway Plotly page (`.local-state/flow-proto/proto_flow_panel.html` at the workspace
+**v2, the built panel.** Looked at on /analysis (desktop pane, single-market stack) on
+Gold, Corn and Euro. The Speculator line reads against the three Legacy lines; on Gold it
+tracks Non-Commercial closely, as the Legacy correlation for Managed Money predicts. The
+strip reads as runs of blue and red with near-zero weeks close to the background. Two
+fixes came from looking: the first panel note ran off the panel and sat over the lines,
+so it was shortened to one clause each for the speculator and retail and the strip was
+named by a "flow z" tick at its own height; and the zoom autoscale cut the strip off,
+fixed by leaving heatmap axes alone.
+
+**v1, the withdrawn heatmap (record).** A throwaway Plotly page (`.local-state/flow-proto/proto_flow_panel.html` at the workspace
 root, served by the `flow-proto` entry in the workspace `.claude/launch.json`; not
 committed, no figure quoted from it) drew GC's last 156 weeks as a price line over a
 four-row heatmap with the analyzer's dark template and colours, in three configurations:
@@ -557,12 +431,15 @@ the desktop pane (about 800 px wide) and at the 375 px phone preset.
 
 ## 8. What not to do
 
-- Do not sell the state table as a signal, on any surface, in any caption.
-- Do not compute the flow in cot-analyzer to get a panel up quickly.
+- Do not sell the flow strip, or any state, as a signal, on any surface, in any caption.
+- Do not compute the speculator, the flow or the roles in cot-analyzer; it reads
+  `CotIndexer.get_speculator_data`.
 - Do not route the primitive through `calculate_momentum_index`, `calculate_z_score` or
   `movers.py`.
 - Do not let the page lookback reach the flow window.
-- Do not put the classifier in `models.py`.
-- Do not quote a return off the `data_cache` close for any market but gold, and not for
-  gold either once the propadj figures exist.
+- Do not type a role into `flow_roles.py` by hand; re-measure and regenerate.
+- Do not add a Retail line on /analysis: the Legacy Non-Reportable line is the same data.
+- Do not bring back a multi-row heatmap or a counterparty row without a new review: both
+  were built and withdrawn (section 3).
+- Do not quote a return off the `data_cache` close for any market.
 - Do not amend the gold analysis doc; write forward and link back.
