@@ -328,3 +328,27 @@ def test_a_marker_predating_the_split_busts_once(tmp_path, monkeypatch):
 
     assert CotIndexer._read_cache_schema() == 99
     assert CotIndexer._read_cache_marketdata_schema() == 0
+
+
+def test_source_code_column_prefers_quotes_then_plain_then_nothing():
+    """Which contract population a row came from, for the flow seam mask.
+
+    cotdata rewrites the plain code to the primary on predecessor rows, so on a
+    stitched market it is constant and says nothing; the `_Quotes` twin survives the
+    stitch but is not promised. Quotes wins when both are present and disagree, the
+    plain code is the fallback, and neither present means no column, not an error.
+    """
+    df = _frame(categories.REPORT_DISAGG, n=4)
+    df[const.CONTRACT_CODE_XLS] = ["058644"] * 4
+    df["CFTC_Contract_Market_Code_Quotes"] = [" 058643", "058643", "058644 ", "058644"]
+    out = categories.build_category_frame(df, categories.REPORT_DISAGG, 2)
+    assert out[const.SOURCE_CODE].tolist() == ["058643", "058643", "058644", "058644"]
+
+    plain = categories.build_category_frame(
+        df.drop(columns=["CFTC_Contract_Market_Code_Quotes"]), categories.REPORT_DISAGG, 2)
+    assert plain[const.SOURCE_CODE].tolist() == ["058644"] * 4
+
+    neither = categories.build_category_frame(
+        df.drop(columns=["CFTC_Contract_Market_Code_Quotes", const.CONTRACT_CODE_XLS]),
+        categories.REPORT_DISAGG, 2)
+    assert const.SOURCE_CODE not in neither.columns

@@ -11,6 +11,7 @@ import yaml
 import cotmetrics as metrics
 import cotmetrics.categories as categories
 import cotmetrics.constants as const
+import cotmetrics.flows as flows
 import cotmetrics.models as models
 import cotmetrics.symbol_code_map as symbol_code_map
 import cotmetrics.utils as utils
@@ -1566,6 +1567,12 @@ class CotIndexer:
 
         The price columns are joined here rather than by the caller: cot-analyzer is
         a view over this package and computes nothing of its own, joining included.
+
+        Also carries the week-over-week flow columns from
+        `cotmetrics.flows.build_flow_frame` (names from its builders, window fixed at
+        const.FLOW_Z_WEEKS and independent of `lookback`) and its `flow_*` attrs.
+        Flow Thin, Flow Sign and Flow Active Count are nullable dtypes (boolean,
+        Int64) carrying pd.NA, and Flow State is object with None in the warm-up.
         """
         if report not in categories.REPORT_CHOICES:
             raise ValueError(
@@ -1607,6 +1614,17 @@ class CotIndexer:
             raw, report, weeks, lookback_header=header)
         if frame.empty:
             return None
+
+        # The flow columns ride on the category frame rather than on a second call:
+        # cot-analyzer draws, it does not compute, so the one frame it asks for has
+        # to carry everything the page shows. The flow window is fixed inside
+        # build_flow_frame and never sees `weeks`. attrs are merged and re-attached
+        # by hand because concat drops them, the same trap the price merge below
+        # and the set_index at the end both handle.
+        flow = flows.build_flow_frame(frame, report, symbol=instrument.symbol)
+        attrs = {**frame.attrs, **flow.attrs}
+        frame = pd.concat([frame, flow], axis=1)
+        frame.attrs = attrs
 
         if with_price:
             price_cols = [const.OPEN_PRICE, const.HIGH_PRICE,
