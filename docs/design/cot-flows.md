@@ -218,10 +218,13 @@ inherited, and returns only new columns on the same index.
   whose counterparty set is stable on rolling 156-week windows (criterion fixed before
   the run: the set equals the full-history set in at least 60% of windows over at least
   8 windows) carry measured roles; the other 21 fall back to the per-report default with
-  the source recorded as such. Per-report defaults:
-  disagg counterparty = producer_merchant + swap, opinion = (managed_money,
-  other_reportable, nonreportable); tff counterparty = dealer, opinion = (leveraged,
-  asset_manager, nonreportable), residual = other_reportable. The opinion triple that
+  the source recorded as such. Per-report defaults (decision 6, taken 2026-09-26):
+  disagg counterparty = producer_merchant alone with swap neutral, opinion =
+  (managed_money, other_reportable, nonreportable); tff counterparty = dealer, opinion =
+  (leveraged, asset_manager, nonreportable), residual = other_reportable. The
+  precious-metals grouping (producer_merchant + swap) survives only as the MEASURED entry
+  of the markets where the swap dealers absorb flow (GC, PA, PL, SI, and with Other
+  Reportable HG, SB, SI, HO). The opinion triple that
   feeds the state is the per-report default everywhere (the branch's test and the
   universe run used it, so the vocabulary keeps its meaning); the measured roles change
   only the counterparty composite and the NEUTRAL set. Each entry carries
@@ -391,13 +394,17 @@ separate sessions.
    the precious-metals grouping applied everywhere. A rolling-window stability check on
    the assignments is the prerequisite for the per-symbol option. Done 2026-09-26
    (`analysis/2026-09-26-cot-cohort-roles-propadj.md`): 21 of 42 pass, and PR 1 ships
-   measured roles for exactly those. Two things remain the human's: (a) the nine physicals
-   that fail (CC, CL, GF, HE, HO, NG, RB, SB, ZW) fall back to Producer/Merchant plus
-   Swap Dealers, although the windows say Producer/Merchant alone is the stable
-   counterparty on all of them and the swap dealers sit on the 0.15 line; "Producer/Merchant
-   alone as the Disaggregated fallback" was not pre-stated and is one CSV edit plus a
-   regeneration if chosen; (b) GC passes at exactly 0.60 and LBR on nine windows spanning
-   four years, so either could reasonably be moved to the default.
+   measured roles for exactly those. Decided the same day, on that evidence: (a) the
+   Disaggregated fallback is Producer/Merchant alone with the swap dealers neutral, because
+   Producer/Merchant is the counterparty in at least two thirds of the rolling windows on
+   every physical and the swap dealers on the nine markets that fail (CC, CL, GF, HE, HO,
+   NG, RB, SB, ZW) swing between neutral, speculator and counterparty; a fallback is the
+   conservative core, and every cohort is still drawn as its own row. The two choices give
+   nearly the same composite flow on seven of the nine (correlation with Legacy Commercial
+   0.80 to 0.96) and differ where it matters, NG and CL. (b) GC keeps its measured entry
+   (Producer/Merchant plus Swap Dealers is right for gold and would be lost on the new
+   default); LBR's measured set equals the new default, so its nine-window pass changes
+   nothing. Shipped in PR #52.
 7. Repository hygiene for the untracked artefacts: commit the two analysis docs, the JSONs,
    the search logs, the scripts and the PNGs; do not commit the 4.2 MB universe parquet
    (regenerable in 5 s from the command in the doc; add it to `.gitignore`). The branch
