@@ -265,12 +265,32 @@ def test_merged_index_needs_the_lookback_attrs():
     assert not [c for c in out.columns if c.endswith(const.IDX)]
 
 
-def test_level_marks_are_the_inclusive_deciles_and_na_preserving():
-    got = flows.level_marks(pd.Series([np.nan, 10.0, 10.01, 50, 89.99, 90.0, 100.0, 0.0]))
+def test_level_entries_mark_only_the_week_a_decile_is_entered():
+    lvl = pd.Series([np.nan, 50, 90.0, 95, 99, 50, 91, 10.0, 5, 50, 89.99, 10.01])
+    got = flows.level_entries(lvl)
     assert got.dtype == "Int64"
     assert pd.isna(got.iloc[0])
-    assert got.iloc[1:].tolist() == [-1, 0, 0, 0, 1, 1, -1]
+    assert got.iloc[1:].tolist() == [0, 1, 0, 0, 0, 1, -1, 0, 0, 0, 0]
+    # Already inside a decile on the first readable week counts as an entry.
+    assert flows.level_entries(pd.Series([95.0, 96.0])).tolist() == [1, 0]
     assert (const.FLOW_LEVEL_LOW, const.FLOW_LEVEL_HIGH) == (10, 90)
+
+
+def test_level_is_a_fixed_three_year_range_index_whatever_the_lookback():
+    raw = _frame(DISAGG, n=200)
+    a = flows.build_flow_frame(_cat(DISAGG, raw, lookback=8), DISAGG, symbol="GC")
+    b = flows.build_flow_frame(_cat(DISAGG, raw, lookback=216), DISAGG, symbol="GC")
+    cat = _cat(DISAGG, raw)
+    mm = _spec(DISAGG, "managed_money")
+    col = flows.flow_level_col(mm)
+    assert col == "Managed Money Level 156w"
+    pd.testing.assert_series_equal(a[col], b[col])
+    want = indicators.calculate_range_index(cat[categories.net_col(mm)], window=156,
+                                            min_periods=52)
+    pd.testing.assert_series_equal(a[col], want, check_names=False)
+    assert a[col].iloc[:51].isna().all() and a[col].iloc[51:].notna().all()
+    # The merged row carries one too, on its summed net.
+    assert flows.flow_level_col(flows.COMMERCIALS) in a.columns
 
 
 # --- the classifier -------------------------------------------------------------

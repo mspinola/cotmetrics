@@ -45,6 +45,11 @@ Producer/Merchant and Swap Dealers are one side (the Legacy Commercial) and draw
 "Commercials" row, with its own flow and its own range index at the page lookback
 (MERGED_ROWS; `flow_rows`). Everywhere else every category is its own row.
 
+Each row also carries "Level 156w", its net's range index over a fixed three years,
+which is what the markers read (`level_entries`). Like the z window it is fixed and
+named with its window: at the page's tuned lookback (26 weeks on gold) a cohort sits in
+its top or bottom decile for months at a time and the markers bury the cells.
+
 Held out on purpose, per the design doc's PR 1 scope: dGross and the straddle flag,
 the derisk flag (fixed multipliers designed on gold, untested elsewhere), any forward
 return, any state NAME for TFF (the sign string renders until a TFF vocabulary is
@@ -118,6 +123,11 @@ def flow_z_col(spec):
     return spec.prefix + const.FLOW_Z + _window_suffix()
 
 
+def flow_level_col(spec):
+    """The row's range index over the fixed FLOW_LEVEL_WEEKS window ("... Level 156w")."""
+    return spec.prefix + const.FLOW_LEVEL + f" {const.FLOW_LEVEL_WEEKS}w"
+
+
 def flow_thin_col(spec):
     return spec.prefix + const.FLOW_THIN
 
@@ -177,6 +187,12 @@ def weekly_change(series, *, max_gap_days=const.FLOW_MAX_GAP_DAYS, source_code=N
 
 def _rolling_sd(series, window, min_periods):
     return series.rolling(window, min_periods=min_periods).std()
+
+
+def _level(net):
+    """The fixed-window range index the markers read, 3 years with a 1-year warm-up."""
+    return indicators.calculate_range_index(net, window=const.FLOW_LEVEL_WEEKS,
+                                            min_periods=const.FLOW_LEVEL_MIN_PERIODS)
 
 
 def flow_z(series, window=const.FLOW_Z_WEEKS, min_periods=const.FLOW_Z_MIN_PERIODS):
@@ -257,20 +273,25 @@ def flow_rows(category_frame, report, symbol=None):
     return rows
 
 
-def level_marks(index, low=const.FLOW_LEVEL_LOW, high=const.FLOW_LEVEL_HIGH):
-    """1 where a row's range index is at or above `high`, -1 at or below `low`.
+def level_entries(level, low=const.FLOW_LEVEL_LOW, high=const.FLOW_LEVEL_HIGH):
+    """1 on the week a row's level enters its top decile, -1 its bottom, else 0.
 
-    The mockup's rule (scripts/analysis/cot_level_x_flow.py), inclusive at both
-    ends, on the same week's index, whether or not the flow that week was large: the
-    marker says where the cohort's positioning stands, and the cell's colour says
-    what it did. Int64, NA where the index is NaN (the lookback warm-up). A view
-    calls this on the index column it already draws, so the cutoff lives here.
+    `level` is the fixed-window range index (`flow_level_col`). Inclusive cutoffs,
+    as the prototype drew them (scripts/analysis/cot_level_x_flow.py), but only the
+    week of ENTRY is marked: a cohort that sits at the top of its range for months
+    is one mark, not a run of them, which in the running app hid the cells beneath.
+    The first readable week counts as an entry if it is already inside a decile.
+    Int64, NA where the level is NaN (its 52-week warm-up).
     """
-    idx = pd.Series(index, dtype=float)
-    out = pd.Series(0, index=idx.index, dtype="Int64")
-    out[(idx >= high).to_numpy()] = 1
-    out[(idx <= low).to_numpy()] = -1
-    out[idx.isna().to_numpy()] = pd.NA
+    lvl = pd.Series(level, dtype=float)
+    top = (lvl >= high).to_numpy()
+    bottom = (lvl <= low).to_numpy()
+    prev_top = np.concatenate([[False], top[:-1]])
+    prev_bottom = np.concatenate([[False], bottom[:-1]])
+    out = pd.Series(0, index=lvl.index, dtype="Int64")
+    out[top & ~prev_top] = 1
+    out[bottom & ~prev_bottom] = -1
+    out[lvl.isna().to_numpy()] = pd.NA
     return out
 
 
@@ -287,7 +308,8 @@ def build_flow_frame(category_frame, report, symbol=None):
     Returns:
         pd.DataFrame of ONLY the new columns, same index. Empty in, empty out. Per
         present category: dNet, dLong, dShort, "Flow Z 52w", "Flow Thin" (nullable
-        boolean, NA where the sd is NaN). The same five for each merged row
+        boolean, NA where the sd is NaN), and "Level 156w", the net's range index
+        over a fixed three years (the markers' level). The same six for each merged row
         (MERGED_ROWS), plus its range index at attrs["lookback_header"], and
         attrs["flow_rows"], the rows to draw as (key, label, prefix, members).
         Then, when any counterparty member is present, "Counterparty dNet" and its
@@ -318,6 +340,7 @@ def build_flow_frame(category_frame, report, symbol=None):
             category_frame[categories.short_col(spec)], source_code=source)
         sd = _rolling_sd(dnet, window, min_periods)
         out[flow_z_col(spec)] = dnet / sd.where(sd > 0)
+        out[flow_level_col(spec)] = _level(category_frame[categories.net_col(spec)])
         # Thin dims a cell rather than blanking it: the count is still a reading, the
         # z just is not one worth comparing across markets.
         thin = (sd < const.FLOW_MIN_STD_CONTRACTS).astype("boolean")
@@ -364,6 +387,7 @@ def build_flow_frame(category_frame, report, symbol=None):
         out[flow_z_col(row)] = dnet / sd.where(sd > 0)
         thin = (sd < const.FLOW_MIN_STD_CONTRACTS).astype("boolean")
         out[flow_thin_col(row)] = thin.mask(sd.isna(), pd.NA)
+        out[flow_level_col(row)] = _level(net)
         if header is not None and weeks:
             span = int(weeks) + 1
             out[categories.index_col(row, header)] = indicators.calculate_range_index(

@@ -106,8 +106,11 @@ FLOW_Z_MIN_PERIODS = 26         # same doc, Z_MIN: half the window before a read
 FLOW_ACTIVE_Z = 1.0             # same doc, Z_ACT: strict |z| > 1 is "active"
 FLOW_MAX_GAP_DAYS = 8           # docs/design/cot-flows.md section 5: a missed report week
 FLOW_MIN_STD_CONTRACTS = 200    # docs/design/cot-flows.md section 6: LBR and OJ cohorts
-FLOW_LEVEL_LOW = 10             # scripts/analysis/cot_level_x_flow.py: the mockup marks a
-FLOW_LEVEL_HIGH = 90            # row whose index is <= 10 or >= 90 that week; unsearched
+FLOW_LEVEL = " Level"           # a row's range index over FLOW_LEVEL_WEEKS, for the markers
+FLOW_LEVEL_WEEKS = 156          # scripts/analysis/cot_level_x_flow.py: the prototype's 3-year
+FLOW_LEVEL_MIN_PERIODS = 52     # range (LB, min_periods 52); fixed, not the page lookback
+FLOW_LEVEL_LOW = 10             # same script: its markers are <= 10 or >= 90 on that range;
+FLOW_LEVEL_HIGH = 90            # unsearched
 
 LB_CUSTOM = " Custom"
 LB_26 = " 26"
