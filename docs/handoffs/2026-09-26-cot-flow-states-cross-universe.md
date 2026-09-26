@@ -1,6 +1,6 @@
 # Handoff: cross-universe run of the COT flow-state study
 
-Status: OPEN. Written 2026-09-26 in a Cowork session without the npf venv; to be executed in
+Status: DONE 2026-09-26 (outcome appended below). Written 2026-09-26 in a Cowork session without the npf venv; to be executed in
 Claude Code from `npf/.venv`.
 
 ## What exists
@@ -64,3 +64,13 @@ The commercial row of the heatmap is short-covering at tops (Jan 27 2026: +480 l
 -40,924 shorts) and is the accounting mirror of the Managed Money row, so it is not an
 independent cohort for the state table. The CMR/PF gate reads the commercial LEVEL (WILLCO
 range index); the flow is the level unwinding, i.e. the same information one step later.
+
+## Outcome (2026-09-26)
+
+Executed in Claude Code from `npf/.venv`, branch `claude/cot-flow-states-cross-universe`.
+Findings: `docs/analysis/2026-09-26-cot-flow-states-cross-universe.md` (design committed
+before the run). VALUE_ACCUM long 13w, 32-market ADR-0005 scope: TEST +0.124R on 85 trades,
+CI spans zero, FRAGILE; gauntlet FAIL 0/3. Sign holds in commodities in both halves,
+currencies negative, gold's own TRAIN half negative on the non-overlapping construction.
+Marginal lean at most, genuine null as a signal. No npf gate candidate. Equities and rates
+not run.
