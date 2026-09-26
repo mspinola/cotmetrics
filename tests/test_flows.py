@@ -17,6 +17,7 @@ import cotmetrics.categories as categories
 import cotmetrics.constants as const
 import cotmetrics.flow_roles as flow_roles
 import cotmetrics.flows as flows
+import cotmetrics.indicators as indicators
 from tests.test_categories import _frame
 
 DISAGG = categories.REPORT_DISAGG
@@ -182,9 +183,15 @@ def test_swap_underscore_spellings_give_identical_flows():
 def test_window_is_fixed_regardless_of_page_lookback():
     """OJ's Custom lookback is 8 weeks and PA's is 216, and neither may reach the z."""
     raw = _frame(DISAGG, n=80)
-    a = _flow(DISAGG, raw, lookback=8)
-    b = _flow(DISAGG, raw, lookback=216)
-    pd.testing.assert_frame_equal(a, b)
+    a = _flow(DISAGG, raw, lookback=8, symbol="GC")
+    b = _flow(DISAGG, raw, lookback=216, symbol="GC")
+
+    # Everything except the merged row's range index, which is a level at the page
+    # lookback by design and carries its header, as categories.index_col does.
+    def unlevelled(f):
+        return f[[c for c in f.columns if not c.endswith(const.IDX)]]
+
+    pd.testing.assert_frame_equal(unlevelled(a), unlevelled(b))
     z_cols = [c for c in a.columns if const.FLOW_Z in c]
     assert z_cols and all(c.endswith("Flow Z 52w") for c in z_cols)
     assert a.attrs["flow_window"] == 52
@@ -196,6 +203,74 @@ def test_no_flow_column_collides_with_a_category_column():
         cat = _cat(report)
         out = flows.build_flow_frame(cat, report)
         assert not set(out.columns) & set(cat.columns)
+
+
+
+# --- the rows a view draws ---------------------------------------------------------
+
+def _labels(rows):
+    return [r.label for r in rows]
+
+
+def test_precious_metals_draw_one_commercials_row_in_place_of_prod_and_swap():
+    cat = _cat(DISAGG)
+    for sym in ("GC", "SI", "PL", "PA"):
+        rows = flows.flow_rows(cat, DISAGG, sym)
+        assert _labels(rows) == ["Commercials", "Managed Money", "Other Reportable",
+                                 "Non-Reportable"], sym
+        assert rows[0].members == ("producer_merchant", "swap")
+    # Everywhere else, and with no symbol, every category is its own row.
+    everyone = [s.label for s in categories.categories_for(DISAGG)]
+    for sym in ("ZC", "HG", "CL", None):
+        assert _labels(flows.flow_rows(cat, DISAGG, sym)) == everyone, sym
+    tff = [s.label for s in categories.categories_for(TFF)]
+    assert _labels(flows.flow_rows(_cat(TFF), TFF, "ES")) == tff
+
+
+def test_merged_row_is_the_primitive_on_the_summed_legs():
+    cat = _cat(DISAGG, _frame(DISAGG, n=120), lookback=26)
+    out = flows.build_flow_frame(cat, DISAGG, symbol="GC")
+    pm, swap = _spec(DISAGG, "producer_merchant"), _spec(DISAGG, "swap")
+    row = flows.COMMERCIALS
+    net = cat[categories.net_col(pm)] + cat[categories.net_col(swap)]
+    pd.testing.assert_series_equal(
+        out[flows.flow_col(row)], out[flows.flow_col(pm)] + out[flows.flow_col(swap)],
+        check_names=False)
+    pd.testing.assert_series_equal(out[flows.flow_z_col(row)],
+                                   flows.flow_z(net.diff()), check_names=False)
+    header = cat.attrs["lookback_header"]
+    want = indicators.calculate_range_index(net, window=27, min_periods=27)
+    pd.testing.assert_series_equal(out[categories.index_col(row, header)], want,
+                                   check_names=False)
+    assert out.attrs["flow_rows"][0] == tuple(row)
+    # The member categories keep their own columns; nothing is taken away.
+    assert flows.flow_z_col(pm) in out.columns and flows.flow_z_col(swap) in out.columns
+
+
+def test_no_merged_row_when_a_member_is_missing_or_off_the_list():
+    raw = _frame(DISAGG).drop(columns=["Swap_Positions_Long_All"])
+    cat = _cat(DISAGG, raw)
+    assert "Commercials" not in _labels(flows.flow_rows(cat, DISAGG, "GC"))
+    out = flows.build_flow_frame(cat, DISAGG, symbol="GC")
+    assert not [c for c in out.columns if c.startswith("Commercials")]
+    out = flows.build_flow_frame(_cat(DISAGG), DISAGG, symbol="ZC")
+    assert not [c for c in out.columns if c.startswith("Commercials")]
+
+
+def test_merged_index_needs_the_lookback_attrs():
+    cat = _cat(DISAGG)
+    cat.attrs.pop("lookback_header")
+    out = flows.build_flow_frame(cat, DISAGG, symbol="GC")
+    assert flows.flow_z_col(flows.COMMERCIALS) in out.columns
+    assert not [c for c in out.columns if c.endswith(const.IDX)]
+
+
+def test_level_marks_are_the_inclusive_deciles_and_na_preserving():
+    got = flows.level_marks(pd.Series([np.nan, 10.0, 10.01, 50, 89.99, 90.0, 100.0, 0.0]))
+    assert got.dtype == "Int64"
+    assert pd.isna(got.iloc[0])
+    assert got.iloc[1:].tolist() == [-1, 0, 0, 0, 1, 1, -1]
+    assert (const.FLOW_LEVEL_LOW, const.FLOW_LEVEL_HIGH) == (10, 90)
 
 
 # --- the classifier -------------------------------------------------------------

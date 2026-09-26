@@ -10,8 +10,9 @@ and the sign vocabulary the gold study read its heatmap with.
 Deliberately pure, like `categories`: it takes the OUTPUT of
 `categories.build_category_frame` (so the Swap_/Swap__ resolution, dtype coercion,
 skipped categories and `present_categories` are inherited) and returns only new
-columns on the same index. Imports numpy, pandas, constants, categories and the
-generated `flow_roles` table, nothing else, so it runs against the empty store CI uses.
+columns on the same index. Imports numpy, pandas, constants, categories, indicators
+and the generated `flow_roles` table, nothing else, so it runs against the empty
+store CI uses.
 
 Four choices a reader will otherwise rediscover as bugs:
 
@@ -39,11 +40,18 @@ three pillars on 2026-09-26 (design doc, "The study: run, failed, closed"). Noth
 here carries a forward return or a verdict word, and nothing in `signals`,
 `conditions`, `models` or `synthesis` reads these columns.
 
+The rows a view draws are not always the categories. On the four precious metals,
+Producer/Merchant and Swap Dealers are one side (the Legacy Commercial) and draw as one
+"Commercials" row, with its own flow and its own range index at the page lookback
+(MERGED_ROWS; `flow_rows`). Everywhere else every category is its own row.
+
 Held out on purpose, per the design doc's PR 1 scope: dGross and the straddle flag,
 the derisk flag (fixed multipliers designed on gold, untested elsewhere), any forward
 return, any state NAME for TFF (the sign string renders until a TFF vocabulary is
 proposed), and percent-of-OI flows (same function on `pct_oi_col`, later).
 """
+
+from collections import namedtuple
 
 import numpy as np
 import pandas as pd
@@ -51,6 +59,7 @@ import pandas as pd
 import cotmetrics.categories as categories
 import cotmetrics.constants as const
 import cotmetrics.flow_roles as flow_roles
+import cotmetrics.indicators as indicators
 
 FLOW_STATE_QUIET = "QUIET"
 FLOW_STATE_PARTIAL = "PARTIAL"
@@ -71,6 +80,23 @@ DISAGG_FLOW_STATES = {
 }
 
 _SIGN_GLYPH = {1: "+", -1: "-", 0: "0"}
+
+# One row a view draws: a category, or a merge of categories. `prefix` feeds the same
+# column builders a category spec does (flow_col, flow_z_col, categories.index_col).
+FlowRow = namedtuple("FlowRow", "key label prefix members")
+
+COMMERCIALS = FlowRow("commercials", "Commercials", "Commercials",
+                      ("producer_merchant", "swap"))
+
+# Where Producer/Merchant and Swap Dealers draw as one row. The handoff's "Scope,
+# restated" block (docs/handoffs/2026-09-26-cot-flow-states-cross-universe.md), from
+# docs/analysis/2026-09-26-cot-cohort-collapse.csv: right on GC, SI, PL and PA only;
+# elsewhere the two are separate rows and Swap is the index book on grains and softs.
+# HG's measured counterparty also holds both (flow_roles), and is left out on that
+# block's word; it is a data change here if that is revisited.
+MERGED_ROWS = {
+    (categories.REPORT_DISAGG, sym): (COMMERCIALS,) for sym in ("GC", "SI", "PL", "PA")
+}
 
 
 # --- column-name builders -------------------------------------------------------
@@ -208,6 +234,46 @@ def flow_state(sign_trend, sign_value, sign_retail, report):
     return out
 
 
+def flow_rows(category_frame, report, symbol=None):
+    """The rows a view draws for one market, in report order, as FlowRow tuples.
+
+    Each present category is a row, except that the members of a MERGED_ROWS entry
+    are replaced by the merged row, at the first member's place, when every member
+    is present. A missing member leaves the others as rows of their own.
+    """
+    specs = categories.present_categories(category_frame, report)
+    present = {s.key for s in specs}
+    merges = [m for m in MERGED_ROWS.get((report, symbol), ())
+              if all(k in present for k in m.members)]
+    member_of = {k: m for m in merges for k in m.members}
+    rows, done = [], set()
+    for s in specs:
+        m = member_of.get(s.key)
+        if m is None:
+            rows.append(FlowRow(s.key, s.label, s.prefix, (s.key,)))
+        elif m.key not in done:
+            rows.append(m)
+            done.add(m.key)
+    return rows
+
+
+def level_marks(index, low=const.FLOW_LEVEL_LOW, high=const.FLOW_LEVEL_HIGH):
+    """1 where a row's range index is at or above `high`, -1 at or below `low`.
+
+    The mockup's rule (scripts/analysis/cot_level_x_flow.py), inclusive at both
+    ends, on the same week's index, whether or not the flow that week was large: the
+    marker says where the cohort's positioning stands, and the cell's colour says
+    what it did. Int64, NA where the index is NaN (the lookback warm-up). A view
+    calls this on the index column it already draws, so the cutoff lives here.
+    """
+    idx = pd.Series(index, dtype=float)
+    out = pd.Series(0, index=idx.index, dtype="Int64")
+    out[(idx >= high).to_numpy()] = 1
+    out[(idx <= low).to_numpy()] = -1
+    out[idx.isna().to_numpy()] = pd.NA
+    return out
+
+
 def build_flow_frame(category_frame, report, symbol=None):
     """The flow columns for one market, on the category frame's index.
 
@@ -221,8 +287,11 @@ def build_flow_frame(category_frame, report, symbol=None):
     Returns:
         pd.DataFrame of ONLY the new columns, same index. Empty in, empty out. Per
         present category: dNet, dLong, dShort, "Flow Z 52w", "Flow Thin" (nullable
-        boolean, NA where the sd is NaN). Then, when any counterparty member is
-        present, "Counterparty dNet" and its z. Then per opinion cohort present a
+        boolean, NA where the sd is NaN). The same five for each merged row
+        (MERGED_ROWS), plus its range index at attrs["lookback_header"], and
+        attrs["flow_rows"], the rows to draw as (key, label, prefix, members).
+        Then, when any counterparty member is present, "Counterparty dNet" and its
+        z. Then per opinion cohort present a
         "Flow Sign" (Int64), and when all three opinion cohorts are present the
         active count and, on a state-eligible market only, the "Flow State".
         attrs carry every parameter and the roles used.
@@ -273,6 +342,34 @@ def build_flow_frame(category_frame, report, symbol=None):
         if roles.state_eligible:
             out[const.FLOW_STATE] = flow_state(*signs, report=report)
 
+    # Merged rows: the members' legs summed, then the same primitive, plus the range
+    # index of the summed net at the page lookback, built the way
+    # build_category_frame builds a category's (window lookback + 1, min_periods the
+    # same), so the level panel can draw the merged row beside the categories.
+    header = category_frame.attrs.get("lookback_header")
+    weeks = category_frame.attrs.get("lookback_weeks")
+    rows = flow_rows(category_frame, report, symbol)
+    for row in rows:
+        if len(row.members) < 2:
+            continue
+        members = [by_key[k] for k in row.members]
+        longs = sum(category_frame[categories.long_col(s)] for s in members)
+        shorts = sum(category_frame[categories.short_col(s)] for s in members)
+        net = longs - shorts
+        dnet = weekly_change(net, source_code=source)
+        out[flow_col(row)] = dnet
+        out[flow_long_col(row)] = weekly_change(longs, source_code=source)
+        out[flow_short_col(row)] = weekly_change(shorts, source_code=source)
+        sd = _rolling_sd(dnet, window, min_periods)
+        out[flow_z_col(row)] = dnet / sd.where(sd > 0)
+        thin = (sd < const.FLOW_MIN_STD_CONTRACTS).astype("boolean")
+        out[flow_thin_col(row)] = thin.mask(sd.isna(), pd.NA)
+        if header is not None and weeks:
+            span = int(weeks) + 1
+            out[categories.index_col(row, header)] = indicators.calculate_range_index(
+                net, window=span, min_periods=span)
+
+    out.attrs["flow_rows"] = [tuple(r) for r in rows]
     out.attrs["flow_window"] = window
     out.attrs["flow_min_periods"] = min_periods
     out.attrs["flow_max_gap_days"] = const.FLOW_MAX_GAP_DAYS
