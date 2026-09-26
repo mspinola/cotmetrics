@@ -1,0 +1,14 @@
+Null: iid weekly returns, overlapping h-week forward sums, naive t = mean/(sd/sqrt(n))
+h= 4: full-sample naive t sd=2.01 (theory sqrt(h)=2.00; exact (2h^2+1)/(3h)->sd=1.66); P(|t|>1.96)=0.337
+       random 21-week subset t sd=1.08; non-overlapping subsample t sd=1.00
+h=13: full-sample naive t sd=3.63 (theory sqrt(h)=3.61; exact (2h^2+1)/(3h)->sd=2.95); P(|t|>1.96)=0.591
+       random 21-week subset t sd=1.17; non-overlapping subsample t sd=1.01
+h= 4: clustered subset (3 runs x 7 weeks, n=21) naive t sd=2.17
+h=13: clustered subset (3 runs x 7 weeks, n=21) naive t sd=3.67
+
+Doc's PARTIAL t=5.59 at h=13 deflated by sqrt(13)=3.61 -> 1.55 ; by exact factor 1.9
+Doc's QUIET t=4.15 deflated -> 1.15
+
+real	0m0.558s
+user	0m0.426s
+sys	0m0.033s

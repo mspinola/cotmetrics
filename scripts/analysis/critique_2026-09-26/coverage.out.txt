@@ -1,0 +1,118 @@
+cotdata /Users/matts/code/trading_workspace/cotdata/src/cotdata/__init__.py
+cotmetrics.categories /Users/matts/code/trading_workspace/cotmetrics/src/cotmetrics/categories.py
+
+=== MARKET TABLE ===
+GF | disagg | rows=1059 | 2006-06-13..2026-09-22 | OI=61983 | managed_money:std52=1848(p5=823,med=1407) other_reportable:std52=1198(p5=479,med=624) nonreportable:std52=1154(p5=551,med=840) | stitched=False | flags=-
+HE | disagg | rows=1059 | 2006-06-13..2026-09-22 | OI=287713 | managed_money:std52=10343(p5=3051,med=5818) other_reportable:std52=4520(p5=2072,med=2797) nonreportable:std52=1277(p5=1149,med=1531) | stitched=False | flags=-
+LE | disagg | rows=1059 | 2006-06-13..2026-09-22 | OI=284889 | managed_money:std52=6869(p5=4081,med=6943) other_reportable:std52=2862(p5=2078,med=3134) nonreportable:std52=2137(p5=1569,med=1854) | stitched=False | flags=-
+CT | disagg | rows=1059 | 2006-06-13..2026-09-22 | OI=384016 | managed_money:std52=8979(p5=4050,med=6689) other_reportable:std52=4941(p5=1873,med=2656) nonreportable:std52=1657(p5=1160,med=1693) | stitched=False | flags=-
+CC | disagg | rows=1059 | 2006-06-13..2026-09-22 | OI=178964 | managed_money:std52=3578(p5=2628,med=4847) other_reportable:std52=2370(p5=790,med=2214) nonreportable:std52=953(p5=761,med=1157) | stitched=False | flags=-
+KC | disagg | rows=1059 | 2006-06-13..2026-09-22 | OI=153035 | managed_money:std52=3899(p5=3328,med=4994) other_reportable:std52=1526(p5=1116,med=1749) nonreportable:std52=588(p5=553,med=795) | stitched=False | flags=-
+LBR | disagg | rows=1059 | 2006-06-13..2026-09-22 | OI=9441 | managed_money:std52=945(p5=422,med=1007) other_reportable:std52=243(p5=232,med=566) nonreportable:std52=124(p5=156,med=546) | stitched=True | flags=SMALL_OI_NOW:nonreportable(100c=0.81sd)
+    SEAM: hist 058643 x4.0: 2006-06-13..2023-04-18 n=880; primary 2023-02-21..2026-09-22 n=186; overlap 7 wks; seam 2023-02-21 (H->P): managed_money:dNet=804,z=0.74 other_reportable:dNet=259,z=1.00 nonreportable:dNet=-709,z=-1.56 producer_merchant:dNet=-164,z=-0.20 swap:dNet=-190,z=-0.90; |sum dNet|=0; seam 2023-02-28 (P->H): managed_money:dNet=-4644,z=-3.68 other_reportable:dNet=-419,z=-1.59 nonreportable:dNet=2177,z=3.99 producer_merchant:dNet=2448,z=2.77 swap:dNet=438,z=2.00; |sum dNet|=0; seam 2023-03-14 (H->P): managed_money:dNet=4752,z=3.32 other_reportable:dNet=762,z=2.77 nonreportable:dNet=-1362,z=-2.33 producer_merchant:dNet=-3792,z=-3.64 swap:dNet=-360,z=-1.59; |sum dNet|=0
+OJ | disagg | rows=1059 | 2006-06-13..2026-09-22 | OI=9571 | managed_money:std52=480(p5=364,med=893) other_reportable:std52=172(p5=206,med=343) nonreportable:std52=225(p5=210,med=313) | stitched=False | flags=SMALL_OI_NOW:other_reportable(100c=0.58sd)
+SB | disagg | rows=1059 | 2006-06-13..2026-09-22 | OI=1147767 | managed_money:std52=37915(p5=9264,med=19209) other_reportable:std52=13972(p5=3925,med=6495) nonreportable:std52=6489(p5=5052,med=6779) | stitched=False | flags=-
+HG | disagg | rows=1059 | 2006-06-13..2026-09-22 | OI=301657 | managed_money:std52=6233(p5=1965,med=7964) other_reportable:std52=3293(p5=957,med=3487) nonreportable:std52=1268(p5=1026,med=1579) | stitched=False | flags=-
+GC | disagg | rows=1059 | 2006-06-13..2026-09-22 | OI=412800 | managed_money:std52=8867(p5=10749,med=15875) other_reportable:std52=8094(p5=3151,med=5766) nonreportable:std52=2679(p5=2594,med=3828) | stitched=False | flags=-
+PA | disagg | rows=1059 | 2006-06-13..2026-09-22 | OI=16730 | managed_money:std52=681(p5=568,med=967) other_reportable:std52=376(p5=153,med=382) nonreportable:std52=261(p5=165,med=235) | stitched=False | flags=SMALL_OI_HIST5:other_reportable(p5=153),SMALL_OI_HIST5:nonreportable(p5=165)
+PL | disagg | rows=1059 | 2006-06-13..2026-09-22 | OI=65373 | managed_money:std52=2428(p5=565,med=2930) other_reportable:std52=1430(p5=240,med=1098) nonreportable:std52=642(p5=319,med=627) | stitched=False | flags=-
+SI | disagg | rows=1059 | 2006-06-13..2026-09-22 | OI=106474 | managed_money:std52=2867(p5=2870,med=5583) other_reportable:std52=2421(p5=1113,med=1996) nonreportable:std52=1340(p5=1210,med=1760) | stitched=False | flags=-
+CL | disagg | rows=1059 | 2006-06-13..2026-09-22 | OI=1841811 | managed_money:std52=15178(p5=13424,med=19854) other_reportable:std52=14936(p5=8907,med=12883) nonreportable:std52=6329(p5=4664,med=6295) | stitched=False | flags=-
+NG | disagg | rows=1059 | 2006-06-13..2026-09-22 | OI=1837146 | managed_money:std52=23115(p5=9375,med=21584) other_reportable:std52=18301(p5=6864,med=16446) nonreportable:std52=3673(p5=2936,med=3815) | stitched=False | flags=-
+RB | disagg | rows=1059 | 2006-06-13..2026-09-22 | OI=361099 | managed_money:std52=8001(p5=4259,med=6850) other_reportable:std52=3644(p5=1166,med=3145) nonreportable:std52=1995(p5=1412,med=2070) | stitched=False | flags=-
+HO | disagg | rows=1059 | 2006-06-13..2026-09-22 | OI=274811 | managed_money:std52=6048(p5=3860,med=6015) other_reportable:std52=3656(p5=1373,med=3340) nonreportable:std52=3165(p5=1972,med=3116) | stitched=False | flags=-
+ZC | disagg | rows=1059 | 2006-06-13..2026-09-22 | OI=1854505 | managed_money:std52=56067(p5=17012,med=29868) other_reportable:std52=12662(p5=7852,med=11049) nonreportable:std52=14150(p5=5442,med=7022) | stitched=False | flags=-
+ZS | disagg | rows=1059 | 2006-06-13..2026-09-22 | OI=1114328 | managed_money:std52=32546(p5=8049,med=17590) other_reportable:std52=8607(p5=4664,med=7942) nonreportable:std52=3416(p5=2749,med=3520) | stitched=False | flags=-
+ZM | disagg | rows=1059 | 2006-06-13..2026-09-22 | OI=657637 | managed_money:std52=22955(p5=4762,med=8802) other_reportable:std52=5448(p5=1495,med=3152) nonreportable:std52=3315(p5=1984,med=2648) | stitched=False | flags=-
+ZL | disagg | rows=1059 | 2006-06-13..2026-09-22 | OI=605458 | managed_money:std52=15261(p5=5162,med=10800) other_reportable:std52=5631(p5=2671,med=4000) nonreportable:std52=3429(p5=1825,med=2926) | stitched=False | flags=-
+ZW | disagg | rows=1059 | 2006-06-13..2026-09-22 | OI=483279 | managed_money:std52=16088(p5=6110,med=11536) other_reportable:std52=4546(p5=3430,med=4770) nonreportable:std52=2315(p5=1676,med=2191) | stitched=False | flags=-
+ZB | tff | rows=1059 | 2006-06-13..2026-09-22 | OI=1887864 | leveraged:std52=32397(p5=11328,med=18015) asset_manager:std52=35492(p5=12773,med=17607) nonreportable:std52=15561(p5=8231,med=11136) | stitched=False | flags=-
+ZN | tff | rows=1059 | 2006-06-13..2026-09-22 | OI=5407726 | leveraged:std52=67869(p5=34858,med=66877) asset_manager:std52=93825(p5=45870,med=68085) nonreportable:std52=55736(p5=19969,med=24272) | stitched=False | flags=-
+ZF | tff | rows=1059 | 2006-06-13..2026-09-22 | OI=6599737 | leveraged:std52=96078(p5=26234,med=58063) asset_manager:std52=90769(p5=34964,med=61567) nonreportable:std52=31952(p5=17071,med=22857) | stitched=False | flags=-
+ZT | tff | rows=1059 | 2006-06-13..2026-09-22 | OI=4539374 | leveraged:std52=75925(p5=23731,med=39893) asset_manager:std52=92016(p5=21389,med=34828) nonreportable:std52=18321(p5=9007,med=11133) | stitched=False | flags=-
+YM | tff | rows=1059 | 2006-06-13..2026-09-22 | OI=88087 | leveraged:std52=3818(p5=3496,med=5047) asset_manager:std52=3839(p5=1136,med=2606) nonreportable:std52=1236(p5=1467,med=2225) | stitched=False | flags=-
+NQ | tff | rows=1059 | 2006-06-13..2026-09-22 | OI=286321 | leveraged:std52=13034(p5=8800,med=15071) asset_manager:std52=6039(p5=5241,med=10011) nonreportable:std52=4698(p5=3207,med=4964) | stitched=False | flags=-
+RTY | tff | rows=1059 | 2006-06-13..2026-09-22 | OI=415047 | leveraged:std52=11359(p5=7316,med=10813) asset_manager:std52=9885(p5=7197,med=12043) nonreportable:std52=2876(p5=2066,med=2970) | stitched=True | flags=-
+    SEAM: hist 23977A x1.0: 2008-07-22..2018-06-05 n=516; primary 2006-06-13..2026-09-22 n=595; overlap 52 wks; seam 2008-09-23 (P->H): leveraged:dNet=-83294,z=-4.10 asset_manager:dNet=16274,z=1.11 nonreportable:dNet=-6040,z=-0.48 dealer:dNet=71123,z=3.39; |sum dNet|=0; seam 2017-08-15 (H->P): leveraged:dNet=27789,z=2.21 asset_manager:dNet=-29918,z=-1.58 nonreportable:dNet=-8199,z=-2.14 dealer:dNet=15132,z=0.76; |sum dNet|=0
+ES | tff | rows=1059 | 2006-06-13..2026-09-22 | OI=1890653 | leveraged:std52=49863(p5=40203,med=60046) asset_manager:std52=27829(p5=27607,med=54089) nonreportable:std52=12627(p5=12353,med=50622) | stitched=False | flags=-
+BTC | tff | rows=442 | 2018-04-10..2026-09-22 | OI=22315 | leveraged:std52=1194(p5=280,med=634) asset_manager:std52=518(p5=112,med=455) nonreportable:std52=242(p5=102,med=211) | stitched=False | flags=SMALL_OI_HIST5:asset_manager(p5=112),SMALL_OI_HIST5:nonreportable(p5=102)
+ETH | tff | rows=286 | 2021-04-06..2026-09-22 | OI=29985 | leveraged:std52=2577(p5=234,med=424) asset_manager:std52=759(p5=50,med=278) nonreportable:std52=613(p5=130,med=151) | stitched=False | flags=SMALL_OI_HIST5:asset_manager(p5=50),SMALL_OI_HIST5:nonreportable(p5=130)
+6A | tff | rows=1059 | 2006-06-13..2026-09-22 | OI=306488 | leveraged:std52=8856(p5=5338,med=8281) asset_manager:std52=8974(p5=986,med=4524) nonreportable:std52=3093(p5=2748,med=3727) | stitched=False | flags=-
+6B | tff | rows=1059 | 2006-06-13..2026-09-22 | OI=244925 | leveraged:std52=7033(p5=6476,med=9098) asset_manager:std52=13253(p5=1557,med=5569) nonreportable:std52=4354(p5=2821,med=3895) | stitched=False | flags=-
+6C | tff | rows=1059 | 2006-06-13..2026-09-22 | OI=311085 | leveraged:std52=8001(p5=5621,med=8476) asset_manager:std52=17158(p5=961,med=4116) nonreportable:std52=3293(p5=2840,med=4398) | stitched=False | flags=-
+6S | tff | rows=1059 | 2006-06-13..2026-09-22 | OI=133495 | leveraged:std52=1867(p5=2297,med=3843) asset_manager:std52=3930(p5=239,med=980) nonreportable:std52=1982(p5=2083,med=2741) | stitched=False | flags=-
+6E | tff | rows=1059 | 2006-06-13..2026-09-22 | OI=821689 | leveraged:std52=11745(p5=7481,med=12024) asset_manager:std52=15548(p5=1919,med=6855) nonreportable:std52=4584(p5=3665,med=4551) | stitched=False | flags=-
+6J | tff | rows=1059 | 2006-06-13..2026-09-22 | OI=378701 | leveraged:std52=18716(p5=6736,med=10874) asset_manager:std52=14598(p5=1721,med=5077) nonreportable:std52=3817(p5=3661,med=4508) | stitched=False | flags=-
+6M | tff | rows=1059 | 2006-06-13..2026-09-22 | OI=266061 | leveraged:std52=7737(p5=6649,med=12363) asset_manager:std52=8350(p5=627,med=7076) nonreportable:std52=1343(p5=914,med=1160) | stitched=False | flags=-
+6N | tff | rows=1056 | 2006-06-13..2026-09-22 | OI=101377 | leveraged:std52=4859(p5=1543,med=3029) asset_manager:std52=8130(p5=169,med=1578) nonreportable:std52=692(p5=441,med=748) | stitched=False | flags=SMALL_OI_HIST5:asset_manager(p5=169),GAPS>8d:1(max=28d)
+DX | tff | rows=1059 | 2006-06-13..2026-09-22 | OI=46328 | leveraged:std52=4585(p5=2943,med=4610) asset_manager:std52=2437(p5=224,med=1547) nonreportable:std52=533(p5=539,med=774) | stitched=False | flags=-
+
+=== IDENTITY (all 42) ===
+GF {'max_abs_sum_dnet': 0.0, 'n_nonzero': 0, 'max_abs_resid_2oi': 0.0, 'n_nonzero_2oi': 0, 'max_abs_resid_long': 0.0}
+HE {'max_abs_sum_dnet': 0.0, 'n_nonzero': 0, 'max_abs_resid_2oi': 0.0, 'n_nonzero_2oi': 0, 'max_abs_resid_long': 0.0}
+LE {'max_abs_sum_dnet': 0.0, 'n_nonzero': 0, 'max_abs_resid_2oi': 0.0, 'n_nonzero_2oi': 0, 'max_abs_resid_long': 0.0}
+CT {'max_abs_sum_dnet': 0.0, 'n_nonzero': 0, 'max_abs_resid_2oi': 0.0, 'n_nonzero_2oi': 0, 'max_abs_resid_long': 0.0}
+CC {'max_abs_sum_dnet': 0.0, 'n_nonzero': 0, 'max_abs_resid_2oi': 0.0, 'n_nonzero_2oi': 0, 'max_abs_resid_long': 0.0}
+KC {'max_abs_sum_dnet': 0.0, 'n_nonzero': 0, 'max_abs_resid_2oi': 0.0, 'n_nonzero_2oi': 0, 'max_abs_resid_long': 0.0}
+LBR {'max_abs_sum_dnet': 0.0, 'n_nonzero': 0, 'max_abs_resid_2oi': 0.0, 'n_nonzero_2oi': 0, 'max_abs_resid_long': 0.0}
+OJ {'max_abs_sum_dnet': 0.0, 'n_nonzero': 0, 'max_abs_resid_2oi': 0.0, 'n_nonzero_2oi': 0, 'max_abs_resid_long': 0.0}
+SB {'max_abs_sum_dnet': 0.0, 'n_nonzero': 0, 'max_abs_resid_2oi': 0.0, 'n_nonzero_2oi': 0, 'max_abs_resid_long': 0.0}
+HG {'max_abs_sum_dnet': 0.0, 'n_nonzero': 0, 'max_abs_resid_2oi': 0.0, 'n_nonzero_2oi': 0, 'max_abs_resid_long': 0.0}
+GC {'max_abs_sum_dnet': 0.0, 'n_nonzero': 0, 'max_abs_resid_2oi': 0.0, 'n_nonzero_2oi': 0, 'max_abs_resid_long': 0.0}
+PA {'max_abs_sum_dnet': 0.0, 'n_nonzero': 0, 'max_abs_resid_2oi': 0.0, 'n_nonzero_2oi': 0, 'max_abs_resid_long': 0.0}
+PL {'max_abs_sum_dnet': 0.0, 'n_nonzero': 0, 'max_abs_resid_2oi': 0.0, 'n_nonzero_2oi': 0, 'max_abs_resid_long': 0.0}
+SI {'max_abs_sum_dnet': 0.0, 'n_nonzero': 0, 'max_abs_resid_2oi': 0.0, 'n_nonzero_2oi': 0, 'max_abs_resid_long': 0.0}
+CL {'max_abs_sum_dnet': 0.0, 'n_nonzero': 0, 'max_abs_resid_2oi': 0.0, 'n_nonzero_2oi': 0, 'max_abs_resid_long': 0.0}
+NG {'max_abs_sum_dnet': 0.0, 'n_nonzero': 0, 'max_abs_resid_2oi': 0.0, 'n_nonzero_2oi': 0, 'max_abs_resid_long': 0.0}
+RB {'max_abs_sum_dnet': 0.0, 'n_nonzero': 0, 'max_abs_resid_2oi': 0.0, 'n_nonzero_2oi': 0, 'max_abs_resid_long': 0.0}
+HO {'max_abs_sum_dnet': 0.0, 'n_nonzero': 0, 'max_abs_resid_2oi': 0.0, 'n_nonzero_2oi': 0, 'max_abs_resid_long': 0.0}
+ZC {'max_abs_sum_dnet': 0.0, 'n_nonzero': 0, 'max_abs_resid_2oi': 0.0, 'n_nonzero_2oi': 0, 'max_abs_resid_long': 0.0}
+ZS {'max_abs_sum_dnet': 0.0, 'n_nonzero': 0, 'max_abs_resid_2oi': 0.0, 'n_nonzero_2oi': 0, 'max_abs_resid_long': 0.0}
+ZM {'max_abs_sum_dnet': 0.0, 'n_nonzero': 0, 'max_abs_resid_2oi': 0.0, 'n_nonzero_2oi': 0, 'max_abs_resid_long': 0.0}
+ZL {'max_abs_sum_dnet': 0.0, 'n_nonzero': 0, 'max_abs_resid_2oi': 0.0, 'n_nonzero_2oi': 0, 'max_abs_resid_long': 0.0}
+ZW {'max_abs_sum_dnet': 0.0, 'n_nonzero': 0, 'max_abs_resid_2oi': 0.0, 'n_nonzero_2oi': 0, 'max_abs_resid_long': 0.0}
+ZB {'max_abs_sum_dnet': 0.0, 'n_nonzero': 0, 'max_abs_resid_2oi': 0.0, 'n_nonzero_2oi': 0, 'max_abs_resid_long': 0.0}
+ZN {'max_abs_sum_dnet': 0.0, 'n_nonzero': 0, 'max_abs_resid_2oi': 0.0, 'n_nonzero_2oi': 0, 'max_abs_resid_long': 0.0}
+ZF {'max_abs_sum_dnet': 0.0, 'n_nonzero': 0, 'max_abs_resid_2oi': 0.0, 'n_nonzero_2oi': 0, 'max_abs_resid_long': 0.0}
+ZT {'max_abs_sum_dnet': 0.0, 'n_nonzero': 0, 'max_abs_resid_2oi': 0.0, 'n_nonzero_2oi': 0, 'max_abs_resid_long': 0.0}
+YM {'max_abs_sum_dnet': 0.0, 'n_nonzero': 0, 'max_abs_resid_2oi': 0.0, 'n_nonzero_2oi': 0, 'max_abs_resid_long': 0.0}
+NQ {'max_abs_sum_dnet': 0.0, 'n_nonzero': 0, 'max_abs_resid_2oi': 0.0, 'n_nonzero_2oi': 0, 'max_abs_resid_long': 0.0}
+RTY {'max_abs_sum_dnet': 0.0, 'n_nonzero': 0, 'max_abs_resid_2oi': 0.0, 'n_nonzero_2oi': 0, 'max_abs_resid_long': 0.0}
+ES {'max_abs_sum_dnet': 0.0, 'n_nonzero': 0, 'max_abs_resid_2oi': 0.0, 'n_nonzero_2oi': 0, 'max_abs_resid_long': 0.0}
+BTC {'max_abs_sum_dnet': 0.0, 'n_nonzero': 0, 'max_abs_resid_2oi': 0.0, 'n_nonzero_2oi': 0, 'max_abs_resid_long': 0.0}
+ETH {'max_abs_sum_dnet': 0.0, 'n_nonzero': 0, 'max_abs_resid_2oi': 0.0, 'n_nonzero_2oi': 0, 'max_abs_resid_long': 0.0}
+6A {'max_abs_sum_dnet': 0.0, 'n_nonzero': 0, 'max_abs_resid_2oi': 0.0, 'n_nonzero_2oi': 0, 'max_abs_resid_long': 0.0}
+6B {'max_abs_sum_dnet': 0.0, 'n_nonzero': 0, 'max_abs_resid_2oi': 0.0, 'n_nonzero_2oi': 0, 'max_abs_resid_long': 0.0}
+6C {'max_abs_sum_dnet': 0.0, 'n_nonzero': 0, 'max_abs_resid_2oi': 0.0, 'n_nonzero_2oi': 0, 'max_abs_resid_long': 0.0}
+6S {'max_abs_sum_dnet': 0.0, 'n_nonzero': 0, 'max_abs_resid_2oi': 0.0, 'n_nonzero_2oi': 0, 'max_abs_resid_long': 0.0}
+6E {'max_abs_sum_dnet': 0.0, 'n_nonzero': 0, 'max_abs_resid_2oi': 0.0, 'n_nonzero_2oi': 0, 'max_abs_resid_long': 0.0}
+6J {'max_abs_sum_dnet': 0.0, 'n_nonzero': 0, 'max_abs_resid_2oi': 0.0, 'n_nonzero_2oi': 0, 'max_abs_resid_long': 0.0}
+6M {'max_abs_sum_dnet': 0.0, 'n_nonzero': 0, 'max_abs_resid_2oi': 0.0, 'n_nonzero_2oi': 0, 'max_abs_resid_long': 0.0}
+6N {'max_abs_sum_dnet': 0.0, 'n_nonzero': 0, 'max_abs_resid_2oi': 0.0, 'n_nonzero_2oi': 0, 'max_abs_resid_long': 0.0}
+DX {'max_abs_sum_dnet': 0.0, 'n_nonzero': 0, 'max_abs_resid_2oi': 0.0, 'n_nonzero_2oi': 0, 'max_abs_resid_long': 0.0}
+
+=== LAG-1 AUTOCORR of dNet, median across markets per cohort ===
+disagg producer_merchant: median=0.266 min=0.099 max=0.470  (levels median=0.981)
+disagg swap: median=0.147 min=0.038 max=0.295  (levels median=0.987)
+disagg managed_money: median=0.296 min=0.168 max=0.441  (levels median=0.974)
+disagg other_reportable: median=0.067 min=-0.066 max=0.223  (levels median=0.971)
+disagg nonreportable: median=-0.078 min=-0.195 max=0.155  (levels median=0.945)
+disagg ALL cohorts pooled median=0.155
+tff dealer: median=0.151 min=-0.283 max=0.368  (levels median=0.975)
+tff asset_manager: median=0.122 min=-0.021 max=0.347  (levels median=0.982)
+tff leveraged: median=0.046 min=-0.218 max=0.168  (levels median=0.960)
+tff other_reportable: median=-0.025 min=-0.111 max=0.051  (levels median=0.960)
+tff nonreportable: median=-0.139 min=-0.344 max=0.112  (levels median=0.952)
+tff ALL cohorts pooled median=0.017
+
+=== per-market dNet autocorr (triple) ===
+disagg managed_money {'GF': 0.3, 'HE': 0.44, 'LE': 0.4, 'CT': 0.35, 'CC': 0.32, 'KC': 0.37, 'LBR': 0.33, 'OJ': 0.39, 'SB': 0.37, 'HG': 0.22, 'GC': 0.17, 'PA': 0.27, 'PL': 0.2, 'SI': 0.26, 'CL': 0.17, 'NG': 0.27, 'RB': 0.21, 'HO': 0.17, 'ZC': 0.35, 'ZS': 0.29, 'ZM': 0.34, 'ZL': 0.33, 'ZW': 0.17}
+disagg other_reportable {'GF': 0.07, 'HE': 0.11, 'LE': 0.07, 'CT': 0.1, 'CC': 0.09, 'KC': 0.05, 'LBR': 0.0, 'OJ': 0.2, 'SB': 0.22, 'HG': 0.1, 'GC': -0.03, 'PA': 0.01, 'PL': 0.02, 'SI': -0.07, 'CL': -0.04, 'NG': 0.09, 'RB': 0.22, 'HO': 0.12, 'ZC': 0.02, 'ZS': 0.04, 'ZM': 0.09, 'ZL': 0.05, 'ZW': 0.06}
+disagg nonreportable {'GF': 0.15, 'HE': -0.16, 'LE': 0.09, 'CT': -0.0, 'CC': -0.13, 'KC': -0.18, 'LBR': -0.09, 'OJ': -0.03, 'SB': 0.0, 'HG': -0.16, 'GC': -0.15, 'PA': -0.05, 'PL': -0.17, 'SI': -0.19, 'CL': -0.18, 'NG': -0.11, 'RB': -0.01, 'HO': 0.06, 'ZC': 0.01, 'ZS': 0.02, 'ZM': -0.08, 'ZL': -0.07, 'ZW': -0.2}
+tff leveraged {'ZB': 0.05, 'ZN': -0.07, 'ZF': 0.01, 'ZT': 0.12, 'YM': 0.06, 'NQ': -0.01, 'RTY': 0.03, 'ES': -0.12, 'BTC': -0.16, 'ETH': -0.22, '6A': 0.17, '6B': 0.13, '6C': 0.17, '6S': -0.04, '6E': 0.16, '6J': 0.08, '6M': 0.09, '6N': 0.13, 'DX': -0.02}
+tff asset_manager {'ZB': 0.01, 'ZN': 0.0, 'ZF': 0.02, 'ZT': 0.13, 'YM': 0.08, 'NQ': 0.07, 'RTY': 0.19, 'ES': 0.03, 'BTC': 0.12, 'ETH': -0.02, '6A': 0.26, '6B': 0.22, '6C': 0.35, '6S': 0.1, '6E': 0.23, '6J': 0.22, '6M': 0.1, '6N': 0.32, 'DX': 0.21}
+tff nonreportable {'ZB': -0.18, 'ZN': -0.22, 'ZF': -0.2, 'ZT': -0.34, 'YM': -0.14, 'NQ': -0.03, 'RTY': -0.25, 'ES': -0.02, 'BTC': -0.24, 'ETH': -0.24, '6A': 0.06, '6B': 0.01, '6C': -0.18, '6S': 0.11, '6E': -0.1, '6J': -0.09, '6M': -0.28, '6N': -0.1, 'DX': -0.11}
+
+real	0m0.646s
+user	0m0.781s
+sys	0m0.115s
