@@ -1,0 +1,930 @@
+{
+ "generated": "2026-09-26T12:22:24",
+ "design": {
+  "split": "2019-01-01",
+  "embargo_weeks": 8,
+  "seed": 0,
+  "vol_win": 260,
+  "vol_min": 120,
+  "drift_min": 52,
+  "price": "marketdata propadj futures Close",
+  "entry": "first close >= report_date + 3d",
+  "exit": "first close >= entry + h weeks",
+  "r": "dir * (log(exit/entry)/(sd_daily_260 * sqrt(sessions)) - causal drift)",
+  "overlap": "non-overlapping within market",
+  "z_win": 52,
+  "z_min": 26,
+  "z_act": 1.0,
+  "horizons": [
+   4,
+   13
+  ],
+  "z_definition": "dNet / rolling_std(dNet, 52w, min 26w), no mean subtraction",
+  "straddle": "dGross > 2*rolling_std(dGross) and |dNet| < 0.25*dGross",
+  "derisk": "dSpread_TREND > 1*rolling_std(dSpread_TREND) and dNet_TREND < 0",
+  "hac": "Newey-West Bartlett kernel, lag h-1, within market, summed across markets",
+  "small_oi_flag": "100 contracts > 0.5 sigma of dNet at the latest date",
+  "state_names_note": "gold names kept verbatim; MM_* reads as TREND_* on tff"
+ },
+ "universe": [
+  {
+   "asset_class": "Live Stock",
+   "symbol": "GF"
+  },
+  {
+   "asset_class": "Live Stock",
+   "symbol": "HE"
+  },
+  {
+   "asset_class": "Live Stock",
+   "symbol": "LE"
+  },
+  {
+   "asset_class": "Softs",
+   "symbol": "CT"
+  },
+  {
+   "asset_class": "Softs",
+   "symbol": "CC"
+  },
+  {
+   "asset_class": "Softs",
+   "symbol": "KC"
+  },
+  {
+   "asset_class": "Softs",
+   "symbol": "LBR"
+  },
+  {
+   "asset_class": "Softs",
+   "symbol": "OJ"
+  },
+  {
+   "asset_class": "Softs",
+   "symbol": "SB"
+  },
+  {
+   "asset_class": "Metals",
+   "symbol": "HG"
+  },
+  {
+   "asset_class": "Metals",
+   "symbol": "GC"
+  },
+  {
+   "asset_class": "Metals",
+   "symbol": "PA"
+  },
+  {
+   "asset_class": "Metals",
+   "symbol": "PL"
+  },
+  {
+   "asset_class": "Metals",
+   "symbol": "SI"
+  },
+  {
+   "asset_class": "Currencies",
+   "symbol": "6A"
+  },
+  {
+   "asset_class": "Currencies",
+   "symbol": "6B"
+  },
+  {
+   "asset_class": "Currencies",
+   "symbol": "6C"
+  },
+  {
+   "asset_class": "Currencies",
+   "symbol": "6S"
+  },
+  {
+   "asset_class": "Currencies",
+   "symbol": "6E"
+  },
+  {
+   "asset_class": "Currencies",
+   "symbol": "6J"
+  },
+  {
+   "asset_class": "Currencies",
+   "symbol": "6M"
+  },
+  {
+   "asset_class": "Currencies",
+   "symbol": "6N"
+  },
+  {
+   "asset_class": "Currencies",
+   "symbol": "DX"
+  },
+  {
+   "asset_class": "Energies",
+   "symbol": "CL"
+  },
+  {
+   "asset_class": "Energies",
+   "symbol": "NG"
+  },
+  {
+   "asset_class": "Energies",
+   "symbol": "RB"
+  },
+  {
+   "asset_class": "Energies",
+   "symbol": "HO"
+  },
+  {
+   "asset_class": "Grains",
+   "symbol": "ZC"
+  },
+  {
+   "asset_class": "Grains",
+   "symbol": "ZS"
+  },
+  {
+   "asset_class": "Grains",
+   "symbol": "ZM"
+  },
+  {
+   "asset_class": "Grains",
+   "symbol": "ZL"
+  },
+  {
+   "asset_class": "Grains",
+   "symbol": "ZW"
+  }
+ ],
+ "skipped": [],
+ "unconditional": {
+  "13": {
+   "n": 2364,
+   "E": 0.00672568442565796,
+   "E_raw": -0.005799420566424689,
+   "hit": 50.888324873096444,
+   "t": 0.2821721249166527,
+   "markets": 32
+  },
+  "4": {
+   "n": 7697,
+   "E": -0.003049416214865791,
+   "E_raw": -0.008862243367575882,
+   "hit": 51.69546576588281,
+   "t": -0.2432336043624786,
+   "markets": 32
+  }
+ },
+ "results": [
+  {
+   "kind": "primary",
+   "state": "VALUE_ACCUM",
+   "direction": 1,
+   "h": 13,
+   "subset": "all",
+   "n": 249,
+   "E": 0.1067897702,
+   "E_raw": 0.0917449942,
+   "hit": 57.0281124498,
+   "t": 1.6810675308,
+   "markets": 29,
+   "train_n": 160,
+   "train_E": 0.1081431361,
+   "test_n": 85,
+   "test_E": 0.1235793294,
+   "test_ci": [
+    -0.069661462,
+    0.3165814397
+   ],
+   "test_label": "FRAGILE",
+   "test_p_raw": 0.1087782444,
+   "test_p_sidak": 0.9992935131
+  },
+  {
+   "kind": "class",
+   "state": "VALUE_ACCUM",
+   "direction": 1,
+   "h": 13,
+   "subset": "commodity",
+   "n": 224,
+   "E": 0.127422436,
+   "E_raw": 0.1121230526,
+   "hit": 57.5892857143,
+   "t": 1.9111291972,
+   "markets": 21,
+   "train_n": 141,
+   "train_E": 0.1388218029,
+   "test_n": 80,
+   "test_E": 0.1334766246,
+   "test_ci": [
+    -0.0618810523,
+    0.3299010256
+   ],
+   "test_label": "FRAGILE",
+   "test_p_raw": 0.0935812837,
+   "test_p_sidak": 0.9979501671
+  },
+  {
+   "kind": "class",
+   "state": "VALUE_ACCUM",
+   "direction": 1,
+   "h": 13,
+   "subset": "currency",
+   "n": 25,
+   "E": -0.0780789153,
+   "E_raw": -0.0908424088,
+   "hit": 52.0,
+   "t": -0.3737262251,
+   "markets": 8,
+   "train_n": 19,
+   "train_E": -0.1195248649,
+   "test_n": 5,
+   "test_E": -0.0347773939,
+   "test_ci": [
+    -0.7831092692,
+    0.881286252
+   ],
+   "test_label": "FAIL",
+   "test_p_raw": 0.5656868626,
+   "test_p_sidak": 1.0
+  },
+  {
+   "kind": "gold",
+   "state": "VALUE_ACCUM",
+   "direction": 1,
+   "h": 13,
+   "subset": "GC",
+   "n": 14,
+   "E": 0.1064201715,
+   "E_raw": 0.332674144,
+   "hit": 64.2857142857,
+   "t": 0.2985320734,
+   "markets": 1,
+   "train_n": 9,
+   "train_E": -0.4747685637,
+   "test_n": 5,
+   "test_E": 1.152559895,
+   "test_ci": [
+    0.5723371178,
+    1.7327826723
+   ],
+   "test_label": "HELD",
+   "test_p_raw": 0.0309938012,
+   "test_p_sidak": 0.8624144004
+  },
+  {
+   "kind": "secondary",
+   "state": "BROAD_ACCUM",
+   "direction": -1,
+   "h": 13,
+   "subset": "all",
+   "n": 107,
+   "E": 0.1131262116,
+   "E_raw": 0.1232297264,
+   "hit": 47.6635514019,
+   "t": 0.9625759743,
+   "markets": 24,
+   "train_n": 74,
+   "train_E": 0.0419045407,
+   "test_n": 32,
+   "test_E": 0.289097099,
+   "test_ci": [
+    -0.0739883249,
+    0.6852610131
+   ],
+   "test_label": "FRAGILE",
+   "test_p_raw": 0.0807838432,
+   "test_p_sidak": 0.9950419386
+  },
+  {
+   "kind": "secondary",
+   "state": "INST_BUY_RETAIL_SELL",
+   "direction": -1,
+   "h": 13,
+   "subset": "all",
+   "n": 47,
+   "E": -0.0845784198,
+   "E_raw": -0.0471310311,
+   "hit": 51.0638297872,
+   "t": -0.4849261741,
+   "markets": 19,
+   "train_n": 26,
+   "train_E": 0.0102271321,
+   "test_n": 19,
+   "test_E": -0.2789436326,
+   "test_ci": [
+    -0.8955696434,
+    0.3029045258
+   ],
+   "test_label": "FAIL",
+   "test_p_raw": 0.800839832,
+   "test_p_sidak": 1.0
+  },
+  {
+   "kind": "secondary",
+   "state": "TREND+RETAIL_BUY",
+   "direction": -1,
+   "h": 13,
+   "subset": "all",
+   "n": 231,
+   "E": -0.0246308442,
+   "E_raw": 0.0193925045,
+   "hit": 48.9177489177,
+   "t": -0.3452732013,
+   "markets": 30,
+   "train_n": 157,
+   "train_E": 0.0309135513,
+   "test_n": 70,
+   "test_E": -0.1623164598,
+   "test_ci": [
+    -0.4149501727,
+    0.0862067519
+   ],
+   "test_label": "FAIL",
+   "test_p_raw": 0.8854229154,
+   "test_p_sidak": 1.0
+  },
+  {
+   "kind": "secondary",
+   "state": "MM_ALONE_BUY",
+   "direction": -1,
+   "h": 13,
+   "subset": "all",
+   "n": 210,
+   "E": 0.0452478221,
+   "E_raw": 0.1093908766,
+   "hit": 52.8571428571,
+   "t": 0.638202618,
+   "markets": 29,
+   "train_n": 84,
+   "train_E": 0.1032254435,
+   "test_n": 122,
+   "test_E": 0.0044753744,
+   "test_ci": [
+    -0.1722255404,
+    0.176059338
+   ],
+   "test_label": "FRAGILE",
+   "test_p_raw": 0.473905219,
+   "test_p_sidak": 1.0
+  },
+  {
+   "kind": "secondary",
+   "state": "MM_SELL_OTHERS_BUY",
+   "direction": 1,
+   "h": 13,
+   "subset": "all",
+   "n": 212,
+   "E": 0.1068793439,
+   "E_raw": 0.0785820675,
+   "hit": 54.2452830189,
+   "t": 1.3784901068,
+   "markets": 30,
+   "train_n": 90,
+   "train_E": 0.0299267896,
+   "test_n": 120,
+   "test_E": 0.168235018,
+   "test_ci": [
+    -0.0390212119,
+    0.3675285007
+   ],
+   "test_label": "FRAGILE",
+   "test_p_raw": 0.0527894421,
+   "test_p_sidak": 0.9671805422
+  },
+  {
+   "kind": "secondary",
+   "state": "RETAIL_ALONE_BUY",
+   "direction": -1,
+   "h": 13,
+   "subset": "all",
+   "n": 45,
+   "E": 0.2812820591,
+   "E_raw": 0.3367962688,
+   "hit": 51.1111111111,
+   "t": 1.2423418336,
+   "markets": 17,
+   "train_n": 28,
+   "train_E": 0.428059993,
+   "test_n": 16,
+   "test_E": 0.1245564594,
+   "test_ci": [
+    -0.2212135027,
+    0.4658299546
+   ],
+   "test_label": "FRAGILE",
+   "test_p_raw": 0.2521495701,
+   "test_p_sidak": 0.9999999888
+  },
+  {
+   "kind": "secondary",
+   "state": "BROAD_LIQUID",
+   "direction": -1,
+   "h": 13,
+   "subset": "all",
+   "n": 109,
+   "E": 0.0231541299,
+   "E_raw": -0.0074981847,
+   "hit": 44.9541284404,
+   "t": 0.2463003102,
+   "markets": 25,
+   "train_n": 76,
+   "train_E": 0.0743138573,
+   "test_n": 33,
+   "test_E": -0.0946682727,
+   "test_ci": [
+    -0.4120191436,
+    0.2145383722
+   ],
+   "test_label": "FAIL",
+   "test_p_raw": 0.7204559088,
+   "test_p_sidak": 1.0
+  },
+  {
+   "kind": "secondary",
+   "state": "BROAD_ACCUM",
+   "direction": -1,
+   "h": 4,
+   "subset": "all",
+   "n": 116,
+   "E": 0.1371671182,
+   "E_raw": 0.1411811015,
+   "hit": 52.5862068966,
+   "t": 1.225529252,
+   "markets": 24,
+   "train_n": 80,
+   "train_E": 0.079021536,
+   "test_n": 35,
+   "test_E": 0.2854004855,
+   "test_ci": [
+    -0.0731320396,
+    0.6761299623
+   ],
+   "test_label": "FRAGILE",
+   "test_p_raw": 0.074185163,
+   "test_p_sidak": 0.9922192655
+  },
+  {
+   "kind": "secondary",
+   "state": "INST_BUY_RETAIL_SELL",
+   "direction": 1,
+   "h": 4,
+   "subset": "all",
+   "n": 52,
+   "E": 0.0681445875,
+   "E_raw": 0.0481629498,
+   "hit": 48.0769230769,
+   "t": 0.4243617063,
+   "markets": 20,
+   "train_n": 28,
+   "train_E": 0.0250982089,
+   "test_n": 23,
+   "test_E": 0.1678627176,
+   "test_ci": [
+    -0.3561757349,
+    0.667509734
+   ],
+   "test_label": "FRAGILE",
+   "test_p_raw": 0.2687462507,
+   "test_p_sidak": 0.9999999973
+  },
+  {
+   "kind": "secondary",
+   "state": "TREND+RETAIL_BUY",
+   "direction": -1,
+   "h": 4,
+   "subset": "all",
+   "n": 281,
+   "E": -0.0026667689,
+   "E_raw": 0.0266110652,
+   "hit": 50.8896797153,
+   "t": -0.0440483634,
+   "markets": 30,
+   "train_n": 197,
+   "train_E": 0.0770376172,
+   "test_n": 82,
+   "test_E": -0.1905985376,
+   "test_ci": [
+    -0.4314537245,
+    0.0516908812
+   ],
+   "test_label": "FAIL",
+   "test_p_raw": 0.9412117576,
+   "test_p_sidak": 1.0
+  },
+  {
+   "kind": "secondary",
+   "state": "MM_ALONE_BUY",
+   "direction": -1,
+   "h": 4,
+   "subset": "all",
+   "n": 241,
+   "E": 0.0254269951,
+   "E_raw": 0.060929384,
+   "hit": 47.3029045643,
+   "t": 0.3752150539,
+   "markets": 30,
+   "train_n": 94,
+   "train_E": 0.1307913948,
+   "test_n": 145,
+   "test_E": -0.0402562143,
+   "test_ci": [
+    -0.2074162962,
+    0.1291821789
+   ],
+   "test_label": "FAIL",
+   "test_p_raw": 0.675464907,
+   "test_p_sidak": 1.0
+  },
+  {
+   "kind": "secondary",
+   "state": "MM_SELL_OTHERS_BUY",
+   "direction": -1,
+   "h": 4,
+   "subset": "all",
+   "n": 248,
+   "E": -0.0399398066,
+   "E_raw": -0.0233021065,
+   "hit": 47.1774193548,
+   "t": -0.6049670173,
+   "markets": 31,
+   "train_n": 104,
+   "train_E": 0.0194188089,
+   "test_n": 143,
+   "test_E": -0.08296085,
+   "test_ci": [
+    -0.2534744521,
+    0.0857240382
+   ],
+   "test_label": "FAIL",
+   "test_p_raw": 0.8284343131,
+   "test_p_sidak": 1.0
+  },
+  {
+   "kind": "secondary",
+   "state": "VALUE_ACCUM",
+   "direction": 1,
+   "h": 4,
+   "subset": "all",
+   "n": 296,
+   "E": 0.1676011876,
+   "E_raw": 0.1650540931,
+   "hit": 61.4864864865,
+   "t": 2.7911251255,
+   "markets": 30,
+   "train_n": 193,
+   "train_E": 0.1845534746,
+   "test_n": 101,
+   "test_E": 0.1463461139,
+   "test_ci": [
+    -0.0852853188,
+    0.366692657
+   ],
+   "test_label": "FRAGILE",
+   "test_p_raw": 0.1065786843,
+   "test_p_sidak": 0.9991748222
+  },
+  {
+   "kind": "secondary",
+   "state": "RETAIL_ALONE_BUY",
+   "direction": -1,
+   "h": 4,
+   "subset": "all",
+   "n": 50,
+   "E": -0.0083523491,
+   "E_raw": 0.0220941205,
+   "hit": 48.0,
+   "t": -0.0409621897,
+   "markets": 17,
+   "train_n": 31,
+   "train_E": 0.0789018785,
+   "test_n": 19,
+   "test_E": -0.15071451,
+   "test_ci": [
+    -0.6471183252,
+    0.3254275378
+   ],
+   "test_label": "FAIL",
+   "test_p_raw": 0.7268546291,
+   "test_p_sidak": 1.0
+  },
+  {
+   "kind": "secondary",
+   "state": "BROAD_LIQUID",
+   "direction": 1,
+   "h": 4,
+   "subset": "all",
+   "n": 123,
+   "E": 0.11970953,
+   "E_raw": 0.144995419,
+   "hit": 61.7886178862,
+   "t": 1.3390739502,
+   "markets": 25,
+   "train_n": 86,
+   "train_E": 0.1180568034,
+   "test_n": 37,
+   "test_E": 0.1235510028,
+   "test_ci": [
+    -0.2270385175,
+    0.4651072993
+   ],
+   "test_label": "FRAGILE",
+   "test_p_raw": 0.2513497301,
+   "test_p_sidak": 0.999999988
+  }
+ ],
+ "primary_holdout": "HOLDOUT @ 2019-01-01 (embargo 8w)\n  TRAIN  n=160  E=+0.108R  CI[-0.055,+0.269]  p(edge>0)=0.903  [FRAGILE]\n  TEST   n=85   E=+0.124R  CI[-0.070,+0.317]  p(edge>0)=0.900  [FRAGILE]\n  -> FRAGILE  (verdict = the untouched TEST period)",
+ "primary_gauntlet": {
+  "passed": false,
+  "gates": [
+   {
+    "name": "REAL",
+    "passed": false,
+    "checks": [
+     {
+      "name": "corrected_pvalue",
+      "passed": false,
+      "value": 0.6118638623098447,
+      "threshold": 0.05,
+      "hard": true,
+      "detail": "sign-permutation p=0.0486, \u0160id\u00e1k-corrected for 19 variants"
+     },
+     {
+      "name": "beats_random_timing",
+      "passed": false,
+      "value": null,
+      "threshold": null,
+      "hard": false,
+      "detail": "skipped \u2014 no price series provided"
+     }
+    ]
+   },
+   {
+    "name": "STRONG",
+    "passed": false,
+    "checks": [
+     {
+      "name": "expectancy_ci_lower",
+      "passed": false,
+      "value": -0.01630962271307954,
+      "threshold": 0.0,
+      "hard": true,
+      "detail": "point=+0.107"
+     },
+     {
+      "name": "profit_factor_ci_lower",
+      "passed": false,
+      "value": 0.9613194795200285,
+      "threshold": 1.25,
+      "hard": true,
+      "detail": "point=1.30"
+     },
+     {
+      "name": "sqn_ci_lower",
+      "passed": false,
+      "value": -0.1589425641230114,
+      "threshold": 1.6,
+      "hard": false,
+      "detail": "point=1.07"
+     },
+     {
+      "name": "time_asymmetry",
+      "passed": false,
+      "value": 0.9983062139009874,
+      "threshold": 2.0,
+      "hard": false,
+      "detail": ""
+     }
+    ]
+   },
+   {
+    "name": "GENERAL",
+    "passed": false,
+    "checks": [
+     {
+      "name": "cross_market_reality_check",
+      "passed": false,
+      "value": 0.0687862427514497,
+      "threshold": 0.05,
+      "hard": true,
+      "detail": "best market 'HE' across 24 tested"
+     }
+    ]
+   }
+  ]
+ },
+ "primary_per_market": [
+  {
+   "symbol": "6B",
+   "asset_class": "Currencies",
+   "n": 4,
+   "E": 0.2020130707,
+   "E_raw": 0.0273186437
+  },
+  {
+   "symbol": "6C",
+   "asset_class": "Currencies",
+   "n": 2,
+   "E": -0.0778028323,
+   "E_raw": 0.0405366084
+  },
+  {
+   "symbol": "6E",
+   "asset_class": "Currencies",
+   "n": 5,
+   "E": -0.5250314316,
+   "E_raw": -0.4950883785
+  },
+  {
+   "symbol": "6J",
+   "asset_class": "Currencies",
+   "n": 3,
+   "E": -1.126001756,
+   "E_raw": -1.165476108
+  },
+  {
+   "symbol": "6M",
+   "asset_class": "Currencies",
+   "n": 4,
+   "E": -0.0351739834,
+   "E_raw": -0.21699627
+  },
+  {
+   "symbol": "6N",
+   "asset_class": "Currencies",
+   "n": 3,
+   "E": 0.6531952319,
+   "E_raw": 0.7347135153
+  },
+  {
+   "symbol": "6S",
+   "asset_class": "Currencies",
+   "n": 2,
+   "E": -0.2999317623,
+   "E_raw": -0.074455761
+  },
+  {
+   "symbol": "CC",
+   "asset_class": "Softs",
+   "n": 9,
+   "E": 0.4456151509,
+   "E_raw": 0.5650986875
+  },
+  {
+   "symbol": "CL",
+   "asset_class": "Energies",
+   "n": 8,
+   "E": 0.2248288781,
+   "E_raw": 0.0230756679
+  },
+  {
+   "symbol": "CT",
+   "asset_class": "Softs",
+   "n": 13,
+   "E": -0.0554046286,
+   "E_raw": -0.044406893
+  },
+  {
+   "symbol": "DX",
+   "asset_class": "Currencies",
+   "n": 2,
+   "E": 1.0898583446,
+   "E_raw": 1.1616091311
+  },
+  {
+   "symbol": "GC",
+   "asset_class": "Metals",
+   "n": 14,
+   "E": 0.1064201715,
+   "E_raw": 0.332674144
+  },
+  {
+   "symbol": "HE",
+   "asset_class": "Live Stock",
+   "n": 4,
+   "E": 1.3018982612,
+   "E_raw": 1.0564219494
+  },
+  {
+   "symbol": "HG",
+   "asset_class": "Metals",
+   "n": 11,
+   "E": 0.0564224027,
+   "E_raw": -0.0539222459
+  },
+  {
+   "symbol": "HO",
+   "asset_class": "Energies",
+   "n": 22,
+   "E": 0.2735484661,
+   "E_raw": 0.2032521378
+  },
+  {
+   "symbol": "KC",
+   "asset_class": "Softs",
+   "n": 5,
+   "E": 0.3669643571,
+   "E_raw": 0.3767425452
+  },
+  {
+   "symbol": "LE",
+   "asset_class": "Live Stock",
+   "n": 2,
+   "E": -0.1131811558,
+   "E_raw": -0.351715559
+  },
+  {
+   "symbol": "NG",
+   "asset_class": "Energies",
+   "n": 18,
+   "E": 0.2244102935,
+   "E_raw": -0.179333813
+  },
+  {
+   "symbol": "OJ",
+   "asset_class": "Softs",
+   "n": 12,
+   "E": 0.2433413772,
+   "E_raw": 0.1843038268
+  },
+  {
+   "symbol": "PA",
+   "asset_class": "Metals",
+   "n": 5,
+   "E": -0.105459242,
+   "E_raw": -0.0253518783
+  },
+  {
+   "symbol": "PL",
+   "asset_class": "Metals",
+   "n": 7,
+   "E": 0.3088947809,
+   "E_raw": 0.2597553299
+  },
+  {
+   "symbol": "RB",
+   "asset_class": "Energies",
+   "n": 25,
+   "E": 0.0932999373,
+   "E_raw": 0.1172953533
+  },
+  {
+   "symbol": "SB",
+   "asset_class": "Softs",
+   "n": 18,
+   "E": 0.1346107865,
+   "E_raw": 0.0021736964
+  },
+  {
+   "symbol": "SI",
+   "asset_class": "Metals",
+   "n": 10,
+   "E": -0.1256983501,
+   "E_raw": -0.0636126128
+  },
+  {
+   "symbol": "ZC",
+   "asset_class": "Grains",
+   "n": 1,
+   "E": -0.3892962923,
+   "E_raw": -0.3392764843
+  },
+  {
+   "symbol": "ZL",
+   "asset_class": "Grains",
+   "n": 16,
+   "E": -0.2398201935,
+   "E_raw": -0.1598460323
+  },
+  {
+   "symbol": "ZM",
+   "asset_class": "Grains",
+   "n": 10,
+   "E": -0.0436864692,
+   "E_raw": 0.3134403868
+  },
+  {
+   "symbol": "ZS",
+   "asset_class": "Grains",
+   "n": 7,
+   "E": 0.0964509731,
+   "E_raw": 0.4141201329
+  },
+  {
+   "symbol": "ZW",
+   "asset_class": "Grains",
+   "n": 7,
+   "E": 0.0577485647,
+   "E_raw": 0.0476526957
+  }
+ ],
+ "sign_count": {
+  "positive": 13,
+  "eligible": 19
+ },
+ "search_log": {
+  "path": "2026-09-26-cot-flow-states-cross-universe.searchlog.jsonl",
+  "n_variants": 63,
+  "session_n_variants": 19
+ }
+}
