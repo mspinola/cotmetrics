@@ -1,0 +1,33 @@
+     weeks  state_differs  named_on_contracts  named_on_pct_oi  named_on_both_same  boxed_only_one_basis  VA_contracts  VA_pct_oi  VA_both
+sym                                                                                                                                       
+GF    1059            217                  64               63                  46                    35             0          0        0
+HE    1059            155                  44               48                  31                    30             5          5        3
+LE    1059            168                  62               53                  40                    35             2          3        1
+CT    1059            158                  55               38                  30                    33            15         14       10
+CC    1059            133                  35               30                  24                    17            11          8        7
+KC    1059            134                  55               46                  38                    25             8          6        5
+LBR   1059            186                  46               48                  32                    30             7         10        5
+OJ    1059            141                  42               42                  28                    28            14         11        8
+SB    1059            111                  59               59                  48                    22            24         23       22
+HG    1059            147                  54               53                  38                    31            16         13       11
+GC    1059            188                  55               44                  31                    37            21         15       14
+PA    1059            242                  49               48                  27                    43             6          7        3
+PL    1059            212                  58               56                  34                    46             8          9        5
+SI    1059            184                  62               52                  39                    36            13          8        6
+CL    1059            118                  52               47                  42                    15             9          7        6
+NG    1059            116                  82               74                  65                    26            27         26       23
+RB    1059            161                  88               76                  59                    46            39         32       26
+HO    1059            133                  65               57                  49                    24            32         23       22
+ZC    1059            138                  42               46                  31                    26             1          1        0
+ZS    1059            166                  44               43                  30                    27             9         10        7
+ZM    1059            151                  50               42                  33                    26            12         14       11
+ZL    1059            108                  57               59                  51                    14            22         22       21
+ZW    1059            126                  47               49                  40                    16             9          9        8
+
+pooled: state label differs on 3593 of 24357 market-weeks = 0.148
+pooled named (boxed) weeks: contracts 1267  pct_oi 1173  same label on both 886  boxed under only one basis 668
+pooled VALUE_ACCUM: contracts 310  pct_oi 276  both 224
+
+real	0m0.677s
+user	0m0.753s
+sys	0m0.087s

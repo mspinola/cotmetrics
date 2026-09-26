@@ -1,0 +1,31 @@
+GC backadj bars: 1978-03-30 -> 2026-09-25 12190 cols ['Open', 'High', 'Low', 'Close', 'Volume', 'Open Interest', 'Delivery Month', 'FirstVolume']
+cache close vs norgate backadj close on Tuesdays: corr of weekly logret = 0.9914
+Tue->Fri logret: mean=0.066% sd=1.30%
+h=4: Tue-anchored sd=3.14%  Fri-anchored sd=3.13%  share of Tue-anchored variance from Tue->Fri leg ~ 0.171; mean Tue-anch=0.39% Fri-anch=0.39%
+   VALUE_ACCUM  n=21 Tue-anch mean=1.03% Fri-anch mean=1.16%  Tue->Fri leg mean=-0.10% (sd 1.09%)
+   PARTIAL      n=545 Tue-anch mean=0.37% Fri-anch mean=0.45%  Tue->Fri leg mean=0.03% (sd 1.31%)
+   QUIET        n=455 Tue-anch mean=0.40% Fri-anch mean=0.26%  Tue->Fri leg mean=0.14% (sd 1.27%)
+   MM buy: Tue->Fri leg mean=0.07% n=156
+   MM sell: Tue->Fri leg mean=-0.07% n=145
+   Other buy: Tue->Fri leg mean=-0.04% n=146
+   Other sell: Tue->Fri leg mean=-0.05% n=144
+   NonRep buy: Tue->Fri leg mean=-0.03% n=156
+   NonRep sell: Tue->Fri leg mean=-0.06% n=154
+h=13: Tue-anchored sd=5.51%  Fri-anchored sd=5.48%  share of Tue-anchored variance from Tue->Fri leg ~ 0.056; mean Tue-anch=1.24% Fri-anch=1.25%
+   VALUE_ACCUM  n=21 Tue-anch mean=2.20% Fri-anch mean=2.29%  Tue->Fri leg mean=-0.10% (sd 1.09%)
+   PARTIAL      n=541 Tue-anch mean=1.22% Fri-anch mean=1.30%  Tue->Fri leg mean=0.03% (sd 1.31%)
+   QUIET        n=450 Tue-anch mean=1.17% Fri-anch mean=1.07%  Tue->Fri leg mean=0.14% (sd 1.27%)
+   MM buy: Tue->Fri leg mean=0.07% n=156
+   MM sell: Tue->Fri leg mean=-0.07% n=145
+   Other buy: Tue->Fri leg mean=-0.04% n=146
+   Other sell: Tue->Fri leg mean=-0.05% n=144
+   NonRep buy: Tue->Fri leg mean=-0.03% n=156
+   NonRep sell: Tue->Fri leg mean=-0.06% n=154
+corr(z_MM, same-week return)=0.546  corr(z_MM, next-week return)=-0.016
+corr(z_Other, same-week return)=-0.035  corr(z_Other, next-week return)=0.020
+corr(z_NonRep, same-week return)=0.228  corr(z_NonRep, next-week return)=-0.008
+corr(z_Comm, same-week return)=-0.550  corr(z_Comm, next-week return)=0.008
+
+real	0m0.337s
+user	0m0.289s
+sys	0m0.057s

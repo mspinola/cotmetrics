@@ -1,0 +1,31 @@
+2026-09-26 12:47:01,409 - INFO - CotIndexer: Loaded instruments from Parquet cache!
+sym  custom_lb            cohort    n  sign_differs  pct
+ GC         26 producer_merchant 1033            68  6.6
+ GC         26              swap 1033            53  5.1
+ GC         26     managed_money 1033            43  4.2
+ GC         26  other_reportable 1033            81  7.8
+ GC         26     nonreportable 1033            54  5.2
+ GF         13 producer_merchant 1033            93  9.0
+ GF         13              swap 1033            90  8.7
+ GF         13     managed_money 1033            86  8.3
+ GF         13  other_reportable 1033            93  9.0
+ GF         13     nonreportable 1033            93  9.0
+ ZB         97            dealer 1011            34  3.4
+ ZB         97     asset_manager 1011            35  3.5
+ ZB         97         leveraged 1011            30  3.0
+ ZB         97  other_reportable 1011            32  3.2
+ ZB         97     nonreportable 1011            35  3.5
+ ES         28            dealer 1033            37  3.6
+ ES         28     asset_manager 1033            53  5.1
+ ES         28         leveraged 1033            53  5.1
+ ES         28  other_reportable 1033            59  5.7
+ ES         28     nonreportable 1033            53  5.1
+ CL         42 producer_merchant 1033            24  2.3
+ CL         42              swap 1033            33  3.2
+ CL         42     managed_money 1033            29  2.8
+ CL         42  other_reportable 1033            27  2.6
+ CL         42     nonreportable 1033            21  2.0
+
+real	0m0.747s
+user	0m0.870s
+sys	0m0.167s

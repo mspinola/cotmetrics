@@ -492,7 +492,12 @@ def main():
         print(f"  {rep:7s} " + "  ".join(f"{k}={'+'.join(v)}" for k, v in m.items()))
     print()
 
-    log = SearchSpaceLog(scope=SCOPE, path=os.path.join(a.out, f"{PREFIX}.searchlog.jsonl"))
+    log_path = os.path.join(a.out, f"{PREFIX}.searchlog.jsonl")
+    if os.path.exists(log_path):
+        # One run, one ledger: SearchSpaceLog accumulates across runs by design, so a
+        # re-run into the same directory would report 88 variants for 44 looks.
+        os.remove(log_path)
+    log = SearchSpaceLog(scope=SCOPE, path=log_path)
 
     frames, skipped, per_market = {}, [], []
     for klass, sym, name in universe:
