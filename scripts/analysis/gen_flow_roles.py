@@ -63,9 +63,16 @@ TFF_CURRENCIES = ("6A", "6B", "6C", "6E", "6J", "6M", "6N", "6S", "DX")
 # order: (managed_money, other_reportable, nonreportable) is the gold script's
 # (MM, Other, NonRep).
 DEFAULTS = {
-    "disagg": dict(counterparty=("producer_merchant", "swap"),
+    # Producer/Merchant alone, with the swap dealers neutral: on every Disaggregated
+    # market Producer/Merchant is the counterparty in at least two thirds of the rolling
+    # windows (docs/analysis/2026-09-26-cot-cohort-roles-propadj.md, Stability), while
+    # the swap dealers on the markets that fail the criterion swing between neutral,
+    # speculator and counterparty because they carry the index book. A fallback is the
+    # conservative core; the precious metals, where the swap dealers do absorb flow,
+    # carry a measured entry that names them.
+    "disagg": dict(counterparty=("producer_merchant",),
                    opinion=("managed_money", "other_reportable", "nonreportable"),
-                   neutral=(), inert=(), residual=()),
+                   neutral=("swap",), inert=(), residual=()),
     "tff": dict(counterparty=("dealer",),
                 opinion=("leveraged", "asset_manager", "nonreportable"),
                 neutral=(), inert=(), residual=("other_reportable",)),

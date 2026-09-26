@@ -127,9 +127,9 @@ class FlowRoles:
 DEFAULTS = {
     'disagg': FlowRoles(
         report='disagg',
-        counterparty=('producer_merchant', 'swap'),
+        counterparty=('producer_merchant',),
         opinion=('managed_money', 'other_reportable', 'nonreportable'),
-        neutral=(),
+        neutral=('swap',),
         inert=(),
         residual=(),
         state_eligible=True,
@@ -155,9 +155,9 @@ MEASURED = {
     # 0.27 over 70 windows, refused (full history said producer_merchant+other_reportable)
     ('disagg', 'CC'): FlowRoles(
         report='disagg',
-        counterparty=('producer_merchant', 'swap'),
+        counterparty=('producer_merchant',),
         opinion=('managed_money', 'other_reportable', 'nonreportable'),
-        neutral=(),
+        neutral=('swap',),
         inert=(),
         residual=(),
         state_eligible=True,
@@ -166,9 +166,9 @@ MEASURED = {
     # 0.09 over 70 windows, refused (full history said swap+other_reportable)
     ('disagg', 'CL'): FlowRoles(
         report='disagg',
-        counterparty=('producer_merchant', 'swap'),
+        counterparty=('producer_merchant',),
         opinion=('managed_money', 'other_reportable', 'nonreportable'),
-        neutral=(),
+        neutral=('swap',),
         inert=(),
         residual=(),
         state_eligible=True,
@@ -199,9 +199,9 @@ MEASURED = {
     # 0.57 over 70 windows, refused (full history said producer_merchant)
     ('disagg', 'GF'): FlowRoles(
         report='disagg',
-        counterparty=('producer_merchant', 'swap'),
+        counterparty=('producer_merchant',),
         opinion=('managed_money', 'other_reportable', 'nonreportable'),
-        neutral=(),
+        neutral=('swap',),
         inert=(),
         residual=(),
         state_eligible=True,
@@ -210,9 +210,9 @@ MEASURED = {
     # 0.39 over 70 windows, refused (full history said producer_merchant+other_reportable)
     ('disagg', 'HE'): FlowRoles(
         report='disagg',
-        counterparty=('producer_merchant', 'swap'),
+        counterparty=('producer_merchant',),
         opinion=('managed_money', 'other_reportable', 'nonreportable'),
-        neutral=(),
+        neutral=('swap',),
         inert=(),
         residual=(),
         state_eligible=True,
@@ -232,9 +232,9 @@ MEASURED = {
     # 0.41 over 70 windows, refused (full history said producer_merchant+swap+other_reportable)
     ('disagg', 'HO'): FlowRoles(
         report='disagg',
-        counterparty=('producer_merchant', 'swap'),
+        counterparty=('producer_merchant',),
         opinion=('managed_money', 'other_reportable', 'nonreportable'),
-        neutral=(),
+        neutral=('swap',),
         inert=(),
         residual=(),
         state_eligible=True,
@@ -276,9 +276,9 @@ MEASURED = {
     # 0.53 over 70 windows, refused (full history said producer_merchant+other_reportable)
     ('disagg', 'NG'): FlowRoles(
         report='disagg',
-        counterparty=('producer_merchant', 'swap'),
+        counterparty=('producer_merchant',),
         opinion=('managed_money', 'other_reportable', 'nonreportable'),
-        neutral=(),
+        neutral=('swap',),
         inert=(),
         residual=(),
         state_eligible=True,
@@ -320,9 +320,9 @@ MEASURED = {
     # 0.37 over 70 windows, refused (full history said producer_merchant+other_reportable)
     ('disagg', 'RB'): FlowRoles(
         report='disagg',
-        counterparty=('producer_merchant', 'swap'),
+        counterparty=('producer_merchant',),
         opinion=('managed_money', 'other_reportable', 'nonreportable'),
-        neutral=(),
+        neutral=('swap',),
         inert=(),
         residual=(),
         state_eligible=True,
@@ -331,9 +331,9 @@ MEASURED = {
     # 0.31 over 70 windows, refused (full history said producer_merchant+swap+other_reportable)
     ('disagg', 'SB'): FlowRoles(
         report='disagg',
-        counterparty=('producer_merchant', 'swap'),
+        counterparty=('producer_merchant',),
         opinion=('managed_money', 'other_reportable', 'nonreportable'),
-        neutral=(),
+        neutral=('swap',),
         inert=(),
         residual=(),
         state_eligible=True,
@@ -397,9 +397,9 @@ MEASURED = {
     # 0.47 over 70 windows, refused (full history said producer_merchant+other_reportable)
     ('disagg', 'ZW'): FlowRoles(
         report='disagg',
-        counterparty=('producer_merchant', 'swap'),
+        counterparty=('producer_merchant',),
         opinion=('managed_money', 'other_reportable', 'nonreportable'),
-        neutral=(),
+        neutral=('swap',),
         inert=(),
         residual=(),
         state_eligible=True,

@@ -330,7 +330,7 @@ def test_ineligible_market_gets_z_cells_and_no_state():
 
 
 def test_measured_counterparty_composite_is_the_sum_of_exactly_its_members():
-    """HG's measured counterparty is Prod + Swap + Other, not the default Prod + Swap."""
+    """HG's measured counterparty is Prod + Swap + Other, not the default Prod alone."""
     roles = flow_roles.roles_for(DISAGG, "HG")
     assert roles.source == "measured"
     assert set(roles.counterparty) == {"producer_merchant", "swap", "other_reportable"}
@@ -341,9 +341,13 @@ def test_measured_counterparty_composite_is_the_sum_of_exactly_its_members():
                                    check_names=False)
     assert out.attrs["flow_roles"]["counterparty"] == roles.counterparty
 
+    # The Disaggregated default is Producer/Merchant alone with the swap dealers neutral
+    # (docs/design/cot-flows.md, decision 6): a fallback is the conservative core.
+    assert flow_roles.DEFAULTS[DISAGG].counterparty == ("producer_merchant",)
+    assert flow_roles.DEFAULTS[DISAGG].neutral == ("swap",)
     default = _flow(DISAGG, raw)
-    two = sum(out[flows.flow_col(_spec(DISAGG, k))] for k in ("producer_merchant", "swap"))
-    pd.testing.assert_series_equal(default[flows.counterparty_flow_col()], two,
+    prod = out[flows.flow_col(_spec(DISAGG, "producer_merchant"))]
+    pd.testing.assert_series_equal(default[flows.counterparty_flow_col()], prod,
                                    check_names=False)
     assert not default[flows.counterparty_flow_col()].equals(out[flows.counterparty_flow_col()])
 
