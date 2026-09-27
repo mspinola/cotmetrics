@@ -5,24 +5,26 @@ that started in
 [`analysis/2026-09-26-cot-flow-states-gold.md`](../analysis/2026-09-26-cot-flow-states-gold.md).
 Amend this file as decisions land; the analysis docs are never amended.
 
-**Current scope (v2, 2026-09-26 evening).** One role series per market, added to the
-existing Positioning Index panel on /analysis: the positioning index of the cohorts
-measured to act as the market's speculator, one strip of that speculator's weekly flow z
-under it, and retail named by how it behaves. The authoritative spec is "Scope, restated
-v2" at the top of `docs/handoffs/2026-09-26-cot-flow-states-cross-universe.md`, with its
-sketch `analysis/2026-09-26-cot-one-role-view.png`. It is built as cotmetrics #52 and
-cot-analyzer #142 (section 3). Everything this plan designed before v2 (per-cohort
-heatmap rows, the counterparty composite row, the eight state names on screen, level
-markers, the week-in-words caption, the three-panel Flow view, the cross-asset board)
-was built or specified, reviewed on the running page and withdrawn; section 3 keeps a
-short record, and the full specs are in this file's git history on the #51 branch
-(commit cb19a5a and earlier). Section 2's measurements stand unchanged.
+**Where it ended (2026-09-27).** One strip on the existing Positioning Index panel of
+/analysis: the Legacy **Commercial** leg's net change each week over its own 52-week
+standard deviation of weekly changes, blue buying and red selling, with that week's
+flow in the Commercial line's hover and a one-line note where the market needs one
+(equity setups read Commercials only; how retail behaves). Built as cotmetrics #52, #53
+and the cleanup PR, and cot-analyzer #142 and #144 (section 3).
 
-Why one series: every long is somebody's short, so the counterparty's net is the mirror
-of the speculator's plus whatever the neutral cohorts did, and a counterparty row repeats
-the speculator row; neutral cohorts do not move with price by construction of the role
-rule, so they are noise on a chart read against price. On review the four-row heatmap
-collapsed nothing and four index lines read as random.
+It got there in three steps. v1 and the plan before it designed per-cohort displays
+(heatmap rows, a counterparty row, state names, level markers, a caption, a three-panel
+Flow view, a cross-asset board); each was built or specified, looked at on the running
+page and withdrawn. "Scope, restated v2" (top of
+`docs/handoffs/2026-09-26-cot-flow-states-cross-universe.md`) cut the display to one
+speculator series per market, and that shipped (#142). On review the same night the
+Speculator line went too: its weekly flow tracks Legacy Non-Commercial at 0.81 to 0.96
+on physicals and major currencies, so it repeated a line already drawn, and where it
+differed (equity index, Treasuries) the gap described composition, which a sentence says
+better. The strip moved to the Commercial leg because every setup in the app is triggered
+by the Commercial index at an extreme, and on equities it is the only leg the gate
+reads. Section 3 keeps the record; full specs are in this file's git history. Section
+2's measurements stand unchanged.
 
 ## 1. What exists
 
@@ -44,6 +46,7 @@ collapsed nothing and four index lines read as random.
 - **Flow.** A cohort's week-over-week change in net futures position, dNet = (long minus
   short).diff(), in contracts. **Flow z** is that change divided by the cohort's own
   trailing 52-week standard deviation of weekly changes, no mean subtracted.
+  What ships is the flow z of the Legacy Commercial leg.
 - **Speculator.** The cohort, or set of cohorts, whose weekly buying moves WITH the
   week's price (same-week correlation of dNet with the return above 0.15, gross share over
   5%), measured per market on the ratio-adjusted series: Managed Money on 21 of the 23
@@ -52,7 +55,7 @@ collapsed nothing and four index lines read as random.
   Funds on 6 (the major currencies), Leveraged Funds on 6M, Dealer plus Asset Manager on
   ETH; none on ZT. The one series the display draws. Source:
   `analysis/2026-09-26-cot-cohort-collapse-propadj.csv`, committed as
-  `cotmetrics.flow_roles`.
+  `cotmetrics.flow_roles`. A measurement, drawn nowhere since 2026-09-27 (section 3).
 - **Opinion cohorts.** (Withdrawn with the state display.) The three whose flow signs made
   the state: Managed Money, Other Reportable and Non-Reportable on Disaggregated;
   Leveraged Funds, Asset Manager and Non-Reportable on TFF.
@@ -78,7 +81,8 @@ collapsed nothing and four index lines read as random.
 - **Retail.** Non-Reportable, by label. On the propadj measurement its flow moves with
   price on 26 of 42 markets, is neutral on 12 and moves against price on 4, so the label
   is a category, not a behaviour; the display names the behaviour per market. On
-  /analysis it is the Legacy Non-Reportable line already drawn, the same data.
+  /analysis it is the Legacy Non-Reportable line already drawn, the same data, and the
+  panel's note names its behaviour.
 - **State.** The sign triple of the opinion cohorts at |z| > 1, named on Disaggregated
   with the gold vocabulary. Its pre-registered test failed; since v2 it appears on no
   surface and cotmetrics no longer computes it.
@@ -207,83 +211,73 @@ source.
   state adds anything beyond the concurrent weekly return has not been tested on any
   market (open, section 6).
 
-## 3. What is built (v2)
+## 3. What is built
 
-Two PRs, cotmetrics first. Both are drafts until #51 (this doc and the analysis files it
-cites) merges; cot-analyzer #142 stays red on `check_dep_floors` until #52 is released.
+### cotmetrics: the flow primitive, the roles table, the Commercial leg's flow
 
-### cotmetrics #52, 0.15.0: `FlowRoles`, the resolvers and `flow_z`
+Merged as #52 (0.15.0), #53 (0.15.1) and the cleanup PR; untagged, so not on PyPI. Nothing
+in `signals`, `conditions`, `models`, `movers` or `synthesis` reads any of it.
 
-Additive; nothing in `signals`, `conditions`, `models`, `movers` or `synthesis` reads it.
-
+- **`cotmetrics.flows`**: `weekly_change` (dNet, NaN across an index gap over 8 days and
+  across a change in the per-row `_Quotes` contract code; section 5), `flow_z` (dNet over
+  its own rolling 52-week sd, min 26, no mean subtracted, NaN rather than 0 under
+  min_periods and on a zero sd; not `indicators.calculate_z_score`, which mean-subtracts
+  and fills 0), and `leg_flow_frame`, which puts "<leg> dNet" and "<leg> Flow Z 52w" on a
+  net series. The window is fixed and rides in the column name; the page lookback never
+  reaches it.
+- **`CotIndexer.get_commercial_flow_data(name)`**: the Legacy Commercial leg's frame,
+  indexed by Date, with `is_equity` and the market's roles entry in attrs. The Legacy
+  report carries no per-row `_Quotes` code, so the seam mask takes it from the market's
+  Disaggregated or TFF frame (same report weeks from 2006; every known seam, RTY 2008 and
+  2017 and LBR 2023, is later), back-filled so pre-2006 rows read as one population;
+  verified on the live store that LBR's three 2023 seam rows come out blank.
+  `build_category_frame` carries that code as `Source Code`.
 - **`cotmetrics.flow_roles`**, generated by `scripts/analysis/gen_flow_roles.py` from
   `analysis/2026-09-26-cot-cohort-collapse-propadj.csv` (threshold 0.15, gross-share
-  floor 0.05, measured 2026-09-26, recorded in the module): a frozen `FlowRoles` per
-  (report, symbol) naming the speculator, counterparty, neutral and inert cohorts and the
-  retail behaviour; `roles_for(report, symbol)` returns the measured entry or the report
-  default (Managed Money on Disaggregated, Leveraged Funds on TFF) and never raises. All
-  42 measured markets carry their measured speculator; the rolling-window stability check
-  (section 2) was a criterion for the counterparty set and is not applied to it.
-  `gen_flow_roles.py --check` fails if the committed module differs from a regeneration.
-- **`cotmetrics.flows`**: `weekly_change` (dNet, NaN across an index gap over 8 days and
-  across a change in `CFTC_Contract_Market_Code_Quotes`, which `build_category_frame` now
-  carries as `Source Code`; section 5), `flow_z` (dNet over its own rolling 52-week sd, min
-  26, no mean subtracted, NaN rather than 0 under min_periods and on a zero sd; not
-  `indicators.calculate_z_score`, which mean-subtracts and fills 0), `speculator_net` and
-  `retail_net` (sums of category nets; None where the table names no speculator or a
-  named cohort is missing, since a partial sum would be a different series under the same
-  name), and `speculator_frame`, which assembles "Speculator Net", "Speculator<header>
-  Idx" (the range index at the page lookback, window lookback + 1 as for every category),
-  "Speculator dNet", "Speculator Flow Z 52w" and "Retail Net", with the roles in attrs.
-  The flow window is fixed and rides in the column name; the page lookback reaches the
-  index and never the z.
-- **`CotIndexer.get_speculator_data(name, lookback)`**: that frame, built on
-  `get_category_data` (Disaggregated where the market has it, else TFF), indexed by Date,
-  lru-cached. `get_category_data` itself is unchanged from main.
-- Verified: store-free suite 517 passed, 3 skipped (main 498); on the live store Gold's
-  speculator net equals its Managed Money net exactly, and Gold, Corn and Euro read
-  Managed Money, Managed Money and Asset Manager + Leveraged Funds.
+  floor 0.05, measured 2026-09-26): a frozen `FlowRoles` per (report, symbol) with a
+  per-report default; `--check` fails if the committed module differs from a
+  regeneration. Read today only for how retail behaves on a market; the speculator,
+  counterparty, neutral and inert sets are the measurement, kept as data.
+- Removed by the cleanup PR, never released: `speculator_net`, `retail_net`,
+  `speculator_frame` and `CotIndexer.get_speculator_data` (#52's v2 resolvers, which lost
+  their only caller in #144).
 
-### cot-analyzer #142: the Positioning Index panel on /analysis
+### cot-analyzer: the Positioning Index panel on /analysis
 
-- The raw-basis Positioning Index panel of the single-market stack gains
-  **"Speculator (members)"**, the speculator's index at the page's per-symbol lookback,
-  in palette slot 5 (distinct from the three Legacy legs in every shipped palette), drawn
-  over the Legacy Commercial, Non-Commercial and Non-Reportable lines already there.
-- **One flow-z strip** inside the same panel, below its zero (the index axis widens to
-  -17, ticks stay on 0 to 100 plus a "flow z" tick at the strip): the speculator's weekly
-  flow z, a true diverging scale with zero barely lifted off the panel background, one sd
-  a muted blue or red and three sd saturated, clipped at 3, opacity 1. The hover gives
-  the z and the net contracts.
-- **Retail as a label, not a line**: a one-line note in the panel names the speculator
-  and says how retail behaves on the market ("moves with price here", "does not move with
-  price here", "moves against price here"). ZT, with no speculator, gets no line and no
-  strip, and the note says Non-Commercial stands in.
+Merged as #142 (the speculator version) and #144 (the Commercial strip that replaced it).
+On the raw-basis panel of the single-market stack:
+
+- **One strip** inside the panel, below its zero (the index axis widens to -17, ticks stay
+  on 0 to 100 plus a "flow z" tick at the strip): the Commercial leg's weekly flow z, a
+  true diverging scale with zero barely lifted off the panel background, one sd a muted
+  blue or red and three sd saturated, clipped at 3, opacity 1. Its hover gives the z and
+  the net contracts.
+- **The Commercial line's hover** carries the same week's flow beside its index
+  ("Commercial : 96 · flow z +0.94 (net +13,537 contracts)"), because under hovermode
+  "x unified" a heatmap cell reports only when the cursor is on the strip.
+- **A one-line note** only where the market needs one: "Equities: setups read Commercial
+  only", and how retail (Non-Reportable) behaves there, from `flow_roles`.
 - The page asks cotmetrics for the frame only when a raw index panel is drawn; the % of
-  OI and Raw vs %OI variants and the market grid view are unchanged.
-- The clientside autoscale leaves any axis carrying a heatmap alone, so the index panel
-  keeps its 0 to 100 scale on zoom (fitting it to the lines in a zoomed window cut the
-  strip off).
-- Verified: suite 909 passed (897 on main), store-free tests including one that drives
-  the real stack callback; looked at in the running app on Gold, Corn and Euro.
+  OI and Raw vs %OI variants and the market grid view are unchanged. The clientside
+  autoscale leaves any axis carrying a heatmap alone, so the index panel keeps 0 to 100
+  on zoom.
 
-### Where the build departs from the v2 block, and why
+### Why the Commercial leg, and not the speculator the v2 block named
 
-- **The propadj roles table, not the cache-close one the block names.** The cache close
-  is additively back-adjusted (non-positive on 11 of 23 physicals), truncated HO, RB and
-  OJ to a fifth to a third of their history, and attenuated every physical's
-  correlation. The two tables name a different speculator on 7 of 41 markets (CL, HE, HO,
-  LBR, 6A, 6S, ZF); on propadj only ZT has no speculator, where the block lists CL, ZF
-  and ZT. The user chose propadj on 2026-09-26.
-- **The page lookback, not a fixed 3-year index.** As the v1 block also required: one page
-  never shows two levels for one cohort.
-- **Retail is a label**, because on /analysis the Legacy Non-Reportable line is the same
-  data; a second line would sit exactly on it.
-- **No 20/80 bands** on the index panel; it keeps its existing threshold shading.
-- **Not built:** the Legacy back-fill of the speculator series before 2006 where
-  `analysis/2026-09-26-cot-roles-vs-legacy-propadj.csv` clears about 0.85 (open, section 4).
+- The speculator line repeated Legacy Non-Commercial on about 30 of 42 markets (weekly
+  flow correlation 0.81 to 0.96, `analysis/2026-09-26-cot-roles-vs-legacy-propadj.csv`).
+- Where it differed (equity index, Treasuries, BTC, DX: -0.41 to +0.30) the gap said
+  that Non-Commercial there is largely Leveraged Funds' hedge and basis book, which is
+  composition, and ADR-0005 (Proposed) argues no group carries a directional read in index
+  futures or Treasuries.
+- The Commercial index is the trigger of every setup in the app, and on equities the only
+  leg the gate reads, so a Commercial strip shows the move behind the leg the setups are
+  judged on, one rule on every market.
+- The three Legacy nets sum to zero, so on commodities the Commercial flow is roughly the
+  Non-Commercial flow reversed; the choice mostly flips blue and red there and matters on
+  equities.
 
-### Withdrawn on review, 2026-09-26 (record)
+### Withdrawn on review, 2026-09-26 and 27 (record)
 
 Each was built or specified, looked at on the running page, and withdrawn by the user.
 Full specs, render findings and review fixes are in this file's history on the #51 branch.
@@ -301,6 +295,9 @@ Full specs, render findings and review fixes are in this file's history on the #
   Commercials row on GC, SI, PL, PA) with the mockup's decile markers, the rows' index
   lines. Withdrawn by v2: the rows collapsed nothing, and four index lines read as random.
 - **The cross-asset board** (never built).
+- **The Speculator line and its strip** (cot-analyzer #142, replaced by #144 the same
+  night; #143, its hover follow-up, closed): the v2 display. Withdrawn for the reasons
+  above.
 
 ### The study: run, failed, closed
 
@@ -318,35 +315,36 @@ separate sessions.
 
 Taken:
 
-1. **One role series per market** ("Scope, restated v2", 2026-09-26 evening): the
-   speculator's index plus one flow-z strip on the existing /analysis Positioning Index
-   panel; no heatmap grid, no state strip, no Flow view, no cross-asset board. This closes
-   the earlier questions about shipping the eight state names (they appear nowhere), the
-   TFF counterparty row, and straddle and derisk (none shipped).
-2. **The roles table is the propadj measurement**, not the cache-close table the v2 block
-   names (reasons in section 3). Taken by the user on 2026-09-26.
-3. **The panel is the /analysis one**, the Legacy page's Positioning Index, rather than
-   the /categories index panel. Taken by the user on 2026-09-26.
-4. **`FlowRoles` keyed per (report, symbol)** from the measured table, with the
-   measurement date and threshold beside it, generated, never typed. (The earlier decision
-   6 on the Disaggregated counterparty fallback, Producer/Merchant alone, is recorded in
-   the table's counterparty field and drawn nowhere.)
+1. **One strip on the existing panel**: the Legacy Commercial leg's weekly flow z on the
+   /analysis Positioning Index panel, no fourth line (2026-09-27, replacing v2's
+   speculator series of 2026-09-26). This closes the earlier questions about the eight
+   state names (they appear nowhere), the TFF counterparty row, straddle and derisk (none
+   shipped), and the Legacy back-fill of a speculator series (there is no such series).
+2. **The panel is the /analysis one**, the Legacy page's Positioning Index, rather than
+   the /categories index panel (2026-09-26).
+3. **The roles table is the propadj measurement**, keyed per (report, symbol), generated,
+   never typed (2026-09-26); the cache-close table named in v2 truncated HO, RB and OJ and
+   attenuated every physical's correlation.
+4. **Treasuries stay out of the COT-gated books.** Asked whether NPF should read
+   Commercials only on Treasuries, as it does on equities: no. The deployed NPF book
+   already drops Fixed Income (+1.81R in sample, -1.94R out of sample, dropping it raised
+   the out-of-sample floor from +0.29 to +0.47; `npf/config/npf/cmr_cs_oinorm_liquid.yaml`),
+   and a Commercials-only Treasury gate would be a fresh, un-registered variant on a class
+   that failed once.
 
 Open:
 
-5. **The Legacy back-fill**: extend the speculator series before 2006 from Legacy
-   Non-Commercial where `analysis/2026-09-26-cot-roles-vs-legacy-propadj.csv` clears
-   about 0.85 (physicals ex-energy, major FX), and nowhere else. Named in v2, not built.
-6. **The seam fix upstream**: a cotdata stitch rule (primary wins an overlap only inside
-   a continuous run; LBR collapses to one seam) beside the cotmetrics-side mask that
-   ships. Recommendation: both, cotdata first, recorded in
-   `docs/design/amendments-cotdata.md`.
-7. **"Uninformative"** as a fourth strength word in npf/AGENTS.md #9;
+5. **The seam fix upstream**: a cotdata stitch rule (primary wins an overlap only inside
+   a continuous run; LBR collapses to one seam), and carrying the `_Quotes` code in the
+   Legacy report so the Commercial flow need not borrow it. Recommendation: both, cotdata
+   first, recorded in `docs/design/amendments-cotdata.md`.
+6. **"Uninformative"** as a fourth strength word in npf/AGENTS.md #9;
    `crowdmon/DEPRECATED.md` already uses it and this plan does too.
-8. **Repository hygiene**: the main checkout still holds untracked copies of files
-   committed on #51 and on origin/main (and the v1 and v2 scope blocks exist only in the
-   main checkout's copy of the handoff); they must be reconciled by hand before a pull of
-   main, and the 4.2 MB universe parquet stays uncommitted (`.gitignore`).
+7. **A speculator-level test**, if ever wanted: whether a speculator-index condition adds
+   to the frozen NPF CS book out of sample, pre-registered, physicals and currencies only,
+   2006 on, judged in a separate session. Expected: a marginal lean at best, since the
+   three Legacy nets sum to zero and the speculator tracks Non-Commercial on those
+   markets.
 
 ## 5. Discontinuities the primitive must refuse
 
@@ -367,7 +365,7 @@ exactly 6N 2006-07-11, and nowhere else across the 42 markets; parity of the flo
 against the universe parquet is exact (max difference 0.0) on the other 40 markets, and
 on those three it differs only on the masked rows and the 52 rows after each.
 
-## 6. Open hazards, none blocking the v2 build
+## 6. Open hazards, none blocking the build
 
 - Point in time: vintages exist only from 2026-07-31 and the frozen-2025 tripwire has
   been blind since 2026-08-01, so a CFTC reclassification restating cohort levels would
@@ -377,19 +375,25 @@ on those three it differs only on the masked rows and the 52 rows after each.
 - Concurrent return: corr(z of managed money, same-week return) is +0.55 on gold. Before
   any pre-registration, tabulate VALUE_ACCUM's after-release excess within terciles of the
   concurrent weekly return from the universe parquet (one logged look).
-- Basis: the speculator series is contracts-basis and is drawn on the raw index panel
-  only; a % of OI version (same function on `pct_oi_col`) would be needed before it can
-  sit on the OI-normalised panel.
+- Basis: the Commercial flow is contracts-basis and is drawn on the raw index panel
+  only; a % of OI version (the same function on the normalised net) would be needed
+  before it can sit on the OI-normalised panel.
 - Multiplicity: the unit of a variant is one (state, horizon, pool, basis, anchor) cell
   tabulated. The two search logs count looks by market and by cut; before a gauntlet,
   backfill a ledger at cell granularity.
 - Small OI: LBR's and OJ's cohorts have a 52-week sd of weekly changes under 200
   contracts, so a z there is large on small counts. The v1 thin flag was withdrawn with
-  the heatmap; the strip's hover prints the contracts beside the z.
+  the heatmap; the strip's hover and the Commercial line's hover print the contracts
+  beside the z.
 
 ## 7. Render checks, 2026-09-26
 
-**v2, the built panel.** Looked at on /analysis (desktop pane, single-market stack) on
+**The Commercial strip (2026-09-27).** Looked at on /analysis on Gold (hover "Commercial :
+96 · flow z +0.94 (net +13,537 contracts)"; note "retail (Non-Reportable) moves with
+price here") and S&P 500 (note "Equities: setups read Commercial only, retail
+(Non-Reportable) does not move with price here").
+
+**v2, the speculator panel (record).** Looked at on /analysis (desktop pane, single-market stack) on
 Gold, Corn and Euro. The Speculator line reads against the three Legacy lines; on Gold it
 tracks Non-Commercial closely, as the Legacy correlation for Managed Money predicts. The
 strip reads as runs of blue and red with near-zero weeks close to the background. Two
@@ -432,14 +436,14 @@ the desktop pane (about 800 px wide) and at the 375 px phone preset.
 ## 8. What not to do
 
 - Do not sell the flow strip, or any state, as a signal, on any surface, in any caption.
-- Do not compute the speculator, the flow or the roles in cot-analyzer; it reads
-  `CotIndexer.get_speculator_data`.
+- Do not compute the flow or the roles in cot-analyzer; it reads
+  `CotIndexer.get_commercial_flow_data`.
 - Do not route the primitive through `calculate_momentum_index`, `calculate_z_score` or
   `movers.py`.
 - Do not let the page lookback reach the flow window.
 - Do not type a role into `flow_roles.py` by hand; re-measure and regenerate.
 - Do not add a Retail line on /analysis: the Legacy Non-Reportable line is the same data.
-- Do not bring back a multi-row heatmap or a counterparty row without a new review: both
-  were built and withdrawn (section 3).
+- Do not bring back a multi-row heatmap, a counterparty row or a Speculator line without
+  a new review: each was built and withdrawn (section 3).
 - Do not quote a return off the `data_cache` close for any market.
 - Do not amend the gold analysis doc; write forward and link back.
