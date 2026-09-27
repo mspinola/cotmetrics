@@ -1,5 +1,111 @@
 # Handoff: cross-universe run of the COT flow-state study
 
+## Scope, restated v2 (2026-09-26, evening; SUPERSEDES the v1 block and the PR 2-4 plan)
+
+The user reviewed the four-row heatmap panel and rejected it: it drew every cohort the
+collapse table named, so it collapsed nothing, and four positioning-index lines read as
+random. Decision: scrap the multi-row heatmap, the multi-line index panel and the eight
+state names. Keep the measurements and reduce the display to ONE role series per market.
+
+### The view (sketch: `docs/analysis/2026-09-26-cot-one-role-view.png`, reproducer `scripts/analysis/cot_one_role_view.py`)
+
+Identical on every market and every report type:
+
+1. Price with open interest (existing panel).
+2. Positioning index of the **speculator net** (the SPEC group from
+   `2026-09-26-cot-cohort-collapse.csv`: MM on most physicals, AssetMgr+LevFund in FX,
+   AssetMgr on ES/RTY), on `CotIndexer`'s per-symbol lookback, 20/80 bands. One thin
+   secondary line for **retail net** (Non-Reportable), labelled with how it behaves on
+   that market (spec-like / neutral / cp-like from the same CSV).
+3. One strip: the speculator net's weekly flow z (dNet / own rolling 52w sd, min 26),
+   diverging scale centred at zero, clipped at +-3.
+
+Why one series: by the sum-to-zero identity the counterparty net is the mirror of the
+speculator net plus the neutral residual, so a counterparty row repeats the speculator
+row; NEUTRAL cohorts do not respond to price by construction of the role rule, so they
+are noise on a chart about price. Markets with no separable roles (CL, ZF, ZT) get the
+panel with the label "no speculator role on this market" and Legacy Non-Commercial as
+the fallback series, dimmed.
+
+### What the port is now
+
+- **cotmetrics** (additive): `speculator_net(symbol)` and `retail_net(symbol)` resolvers
+  driven by a committed `FlowRoles` table keyed by (report, symbol) with per-report
+  defaults, generated from the collapse CSV with threshold 0.15 and the measurement date
+  beside it; `flow_z(series)` for the strip. Legacy back-fill of the speculator series
+  before 2006 only where `2026-09-26-cot-roles-vs-legacy.csv` clears ~0.85.
+- **cot-analyzer**: the existing Positioning Index panel gains a "Speculator" series
+  from the resolver (and "Retail"), and one flow-z strip is added under it. No new
+  panel type, no heatmap grid, no state strip, no cross-asset board.
+
+### Closed
+
+Signal work (VALUE_ACCUM gauntlet FAIL 0/3, single-cohort null on 42 markets): closed.
+PR 2, 3, 4 of `docs/design/cot-flows.md` as written: withdrawn. The critique folder,
+render prototype and crucible branch need no further work; merge the branch's copy of
+this file by hand and commit the Cowork files separately.
+
+Order of work: FlowRoles table + resolvers + flow_z in cotmetrics, then the two
+additions to the existing panel, then stop and show one market from each report type.
+
+### Status of v2 (2026-09-26, Claude Code session)
+
+Built as cotmetrics #52 (`FlowRoles`, `speculator_net`, `retail_net`, `flow_z`,
+`CotIndexer.get_speculator_data`) and cot-analyzer #142 (the Speculator series and one
+flow-z strip on the /analysis Positioning Index panel); cot-analyzer #140 and #141,
+built to v1 and the earlier plan, are closed. Departures from the block, each the
+user's call or forced by the data, are recorded in `docs/design/cot-flows.md` section 3:
+the propadj roles table rather than `2026-09-26-cot-cohort-collapse.csv` (on it only ZT
+has no speculator role; CL and ZF do), retail as a label rather than a line (Legacy
+Non-Reportable on that panel is the same data), no 20/80 bands, and the Legacy back-fill
+before 2006 not yet built.
+
+---
+
+## Scope, restated v1 (2026-09-26, end of day; SUPERSEDED by v2 above)
+
+Kept as the record. v1 was written over by v2 in the main checkout's copy of this file;
+the text below was recovered verbatim from the session that read it before the rewrite.
+
+The user's request was three things. Everything below this block exists to serve them and
+nothing else.
+
+1. **Show week-over-week COT context instead of one static bar chart.** ANSWERED. The
+   deliverable is the three-panel view in `docs/analysis/2026-09-26-cot-view-proposed-gold.png`:
+   price with open interest on top; the cohort flow heatmap in the middle (each cohort's
+   weekly net change divided by its own 52-week standard deviation, blue buying, red
+   selling, with a marker on the cell when that cohort's positioning index is in the bottom
+   or top decile); the positioning index below. Shared x-axis, 52 to 104 weeks.
+2. **Is a cross-cohort truth table a signal?** CLOSED, genuine null. Single-cohort moves
+   predict nothing at 4 or 13 weeks on 42 markets; the eight named states cover about 5% of
+   weeks; the one lean (VALUE_ACCUM) failed the crucible gauntlet 0 of 3 on the branch
+   `claude/cot-flow-states-cross-universe`. The state names survive only as the hover
+   caption on a heatmap cell. No further signal work.
+3. **Port to cot-analyzer.** OPEN, and it is the only open item. What ships is item 1.
+
+Inputs the port needs, all measured, all in `docs/analysis/`:
+
+- **Rows per market** come from `2026-09-26-cot-cohort-collapse.csv`, not from category
+  names. "Commercials" as one row (Prod + Swap) is right on GC, SI, PL, PA only; elsewhere
+  Producer/Merchant and Swap Dealer are separate rows, and Swap is NEUTRAL (the index
+  book) on grains and softs. On TFF the counterparty is Dealer in FX and Leveraged Funds
+  on ES/RTY/BTC. CL, ZF, ZT have no separable roles; draw all cohorts, no composite.
+- **Level** comes from `CotIndexer`'s existing per-symbol tuned lookback, not the fixed
+  156 weeks the prototype used.
+- **History depth**: Legacy (from 1986) may back-fill a row only where
+  `2026-09-26-cot-roles-vs-legacy.csv` clears ~0.85 (physicals ex-energy, major FX).
+  Elsewhere the rows start where Disaggregated/TFF starts (2006).
+- **Primitive** (cotmetrics, additive): per category dNet and z = dNet / rolling 52w sd
+  (min 26), `FlowRoles` keyed by (report, symbol) with a per-report default. That is
+  `docs/design/cot-flows.md` PR 1 as amended; PR 2 is the panel. PRs 3 and 4 (state strip,
+  cross-asset board) are not in scope. The critique folder, the render prototype and the
+  crucible branch are done and need no further work; merge the branch's copy of this file
+  by hand and commit the Cowork files separately.
+
+Order of work for the Claude Code session: PR 1, then PR 2, then stop and show the panel.
+
+---
+
 Status: DONE 2026-09-26. Executed twice the same day: the pre-registered crucible test
 (Outcome below, merged as PR #50) and a descriptive 42-market run (Status update below).
 Written 2026-09-26 in a Cowork session without the npf venv; executed in Claude Code from
