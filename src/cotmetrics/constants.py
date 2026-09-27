@@ -88,6 +88,20 @@ NORMALIZED = " Norm"
 ZSCORE = " Zscore"
 MOMENTUM = " Move"
 
+# One role series per market (cotmetrics.flows, cotmetrics.flow_roles): the speculator
+# net and the retail net, and the speculator's weekly flow z. Every parameter below was
+# fixed before any result was read and has never been searched; the doc that fixed it
+# is named beside it.
+SPECULATOR = "Speculator"       # prefix, like a category prefix: "Speculator Net" ...
+RETAIL = "Retail"               # Non-Reportable, by label; its behaviour is per market
+NET_SUFFIX = " Net"
+FLOW = " dNet"                  # net position change, contracts, one report week
+FLOW_Z = " Flow Z"              # dNet / its own rolling sd; the window rides in the name
+SOURCE_CODE = "Source Code"     # which CFTC contract code a row came from (seam mask)
+FLOW_Z_WEEKS = 52               # docs/analysis/2026-09-26-cot-flow-states-gold.md, Z_WIN
+FLOW_Z_MIN_PERIODS = 26         # same doc, Z_MIN: half the window before a reading prints
+FLOW_MAX_GAP_DAYS = 8           # docs/design/cot-flows.md section 5: a missed report week
+
 LB_CUSTOM = " Custom"
 LB_26 = " 26"
 LB_52 = " 52"

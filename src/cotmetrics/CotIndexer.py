@@ -11,6 +11,7 @@ import yaml
 import cotmetrics as metrics
 import cotmetrics.categories as categories
 import cotmetrics.constants as const
+import cotmetrics.flows as flows
 import cotmetrics.models as models
 import cotmetrics.symbol_code_map as symbol_code_map
 import cotmetrics.utils as utils
@@ -1630,6 +1631,37 @@ class CotIndexer:
         # is why get_symbols_data does the same thing at the end.
         frame.attrs = attrs
         return frame
+
+    @lru_cache(maxsize=64)
+    def get_speculator_data(self, name, lookback="Custom"):
+        """The market's one role series, for the Positioning Index panel.
+
+        Built on `get_category_data` (Disaggregated where the market has it, else
+        TFF) and `cotmetrics.flows`: the speculator net (the measured SPEC group in
+        `flow_roles`), its range index at `lookback` (the same "26" / "52" / "Custom"
+        string, same window rule as every other index), its weekly flow z (fixed
+        52-week window, never `lookback`), and the retail (Non-Reportable) net.
+        Indexed by Date like get_symbols_data. attrs carry "flow_roles" (the table
+        entry, as a dict), "speculator_label" (its members, joined with " + ", or
+        None where the market has no speculator role), "lookback_header" and
+        "lookback_weeks". Returns None when the market has neither report.
+
+        Where the table names no speculator (ZT on the committed measurement) the
+        speculator columns are absent and the view falls back to Legacy
+        Non-Commercial, which it already draws.
+        """
+        instrument = self.get_instrument_from_name(name)
+        if instrument is None:
+            return None
+        reports = [r for r in categories.REPORT_CHOICES
+                   if r in self.available_reports_for(name)]
+        if not reports:
+            return None
+        report = reports[0]
+        frame = self.get_category_data(name, report, lookback, with_price=False)
+        if frame is None or frame.empty:
+            return None
+        return flows.speculator_frame(frame, report, symbol=instrument.symbol)
 
     def get_available_dates(self):
         if not self.asset_class_map or not self.instruments:

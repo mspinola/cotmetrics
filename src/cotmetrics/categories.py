@@ -297,9 +297,13 @@ def build_category_frame(raw, report, lookback_weeks, lookback_header=None,
     Returns:
         pd.DataFrame indexed like `raw`, carrying const.REPORT_DATE_XLS,
         const.OPEN_INTEREST, and per present category the columns named by the
-        builders above. A category whose long or short leg does not resolve is
-        skipped entirely rather than filled with NaN, so a missing category shows up
-        as a missing panel instead of a flat line at zero.
+        builders above, and const.SOURCE_CODE, a stripped string column naming the
+        CFTC contract code each row came from (the `_Quotes` twin when cotdata
+        supplies it, else the plain code), present whenever `raw` carries either;
+        it is text, so exclude it from any all-column numeric pass. A category whose
+        long or short leg does not resolve is skipped entirely rather than filled
+        with NaN, so a missing category shows up as a missing panel instead of a
+        flat line at zero.
 
     The index window is `lookback_weeks + 1` observations, matching
     `CotIndexer.process_lookback`, which slices `[idx - lb : idx + 1]` inclusive of
@@ -330,6 +334,17 @@ def build_category_frame(raw, report, lookback_weeks, lookback_header=None,
     open_interest = _numeric(_resolve(raw, const.OPEN_INTEREST_XLS))
     if open_interest is not None:
         out[const.OPEN_INTEREST] = open_interest
+
+    # Which contract population each row came from, for the flow seam mask. cotdata
+    # rewrites the plain code column to the primary code on predecessor rows (so it
+    # is constant on a stitched market and says nothing), and it does not promise
+    # the `_Quotes` twin; while that twin survives the stitch it is the only per-row
+    # record of the source code, so it wins when present. Stripped because the CFTC
+    # pads codes with whitespace, and "058644" and " 058644" would print as a seam.
+    for code_col in ("CFTC_Contract_Market_Code_Quotes", const.CONTRACT_CODE_XLS):
+        if code_col in raw.columns:
+            out[const.SOURCE_CODE] = raw[code_col].astype(str).str.strip().to_numpy()
+            break
 
     for spec in specs:
         longs = _numeric(_resolve(raw, spec.long_col))
