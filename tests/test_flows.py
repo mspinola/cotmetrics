@@ -246,3 +246,92 @@ def test_gold_speculator_is_managed_money_on_the_live_store():
     mm = cat[categories.net_col(_spec(DISAGG, "managed_money"))]
     pd.testing.assert_series_equal(out[flows.net_col(SPEC)], mm, check_names=False)
     assert out[flows.flow_z_col(SPEC)].iloc[-100:].notna().all()
+
+
+# --- the Legacy Commercial leg's flow (the /analysis strip) ------------------------------
+
+def test_leg_flow_frame_is_weekly_change_then_flow_z():
+    idx = pd.date_range("2020-01-07", periods=80, freq="7D")
+    net = pd.Series(np.random.default_rng(2).normal(0, 1e4, 80).cumsum(), index=idx)
+    code = pd.Series(["A"] * 50 + ["B"] * 30, index=idx)
+    out = flows.leg_flow_frame(net, const.COMM, source_code=code)
+    assert list(out.columns) == ["Comm dNet", "Comm Flow Z 52w"]
+    want = flows.weekly_change(net, source_code=code)
+    pd.testing.assert_series_equal(out["Comm dNet"], want, check_names=False)
+    pd.testing.assert_series_equal(out["Comm Flow Z 52w"], flows.flow_z(want),
+                                   check_names=False)
+    assert pd.isna(out["Comm dNet"].iloc[50])
+
+
+def _legacy_indexer(monkeypatch, n=80, codes=None, reports=(DISAGG,)):
+    from cotmetrics.CotIndexer import CotIndexer, Instrument, _IndexState
+
+    dates = pd.date_range("2020-01-07", periods=n, freq="7D")
+    inst = Instrument("Metals", "Gold", "GC", "088691", 26)
+    inst.df = pd.DataFrame({
+        const.REPORT_DATE_XLS: dates,
+        const.COMM_NET: np.random.default_rng(3).normal(0, 1e4, n).cumsum(),
+    })
+    cat = pd.DataFrame(index=dates)
+    if codes is not None:
+        cat[const.SOURCE_CODE] = codes
+    monkeypatch.setattr(CotIndexer, "available_reports_for", lambda self, name: reports)
+    monkeypatch.setattr(CotIndexer, "get_category_data",
+                        lambda self, name, report, lookback="Custom", with_price=True: cat)
+    monkeypatch.setattr(CotIndexer, "is_equity", lambda self, name: False)
+    ix = CotIndexer.__new__(CotIndexer)
+    ix._state = _IndexState()
+    ix._state.instruments = {"088691": inst}
+    return ix, inst, dates
+
+
+def test_get_commercial_flow_data_runs_store_free(monkeypatch):
+    from cotmetrics.CotIndexer import CotIndexer
+
+    ix, inst, dates = _legacy_indexer(monkeypatch, codes=["088691"] * 80)
+    out = CotIndexer.get_commercial_flow_data(ix, "Gold")
+    assert out.index.name == const.DATE and list(out.index) == list(dates)
+    net = pd.Series(inst.df[const.COMM_NET].to_numpy(), index=dates)
+    pd.testing.assert_series_equal(out["Comm Flow Z 52w"],
+                                   flows.flow_z(flows.weekly_change(net)),
+                                   check_names=False, check_freq=False)
+    assert out.attrs["flow_leg"] == "Commercial"
+    assert out.attrs["is_equity"] is False
+    assert out.attrs["flow_roles"]["retail_behaves"] == "spec-like"
+
+
+def test_commercial_seam_mask_comes_from_the_category_frames_code(monkeypatch):
+    from cotmetrics.CotIndexer import CotIndexer
+
+    # The category frame starts later than Legacy (2006 against 1986): back-filled,
+    # so the early rows are one population and only the real switch is masked.
+    codes = [None] * 20 + ["058643"] * 40 + ["058644"] * 20
+    ix, inst, dates = _legacy_indexer(monkeypatch, codes=codes)
+    out = CotIndexer.get_commercial_flow_data(ix, "Gold")
+    masked = out["Comm dNet"].isna()
+    assert masked.iloc[0] and masked.iloc[60]
+    assert not masked.iloc[1:60].any() and not masked.iloc[61:].any()
+
+
+def test_commercial_flow_without_a_category_report_still_draws(monkeypatch):
+    from cotmetrics.CotIndexer import CotIndexer
+
+    ix, inst, dates = _legacy_indexer(monkeypatch, reports=())
+    out = CotIndexer.get_commercial_flow_data(ix, "Gold")
+    assert out["Comm Flow Z 52w"].iloc[26:].notna().all()
+    assert out.attrs["flow_roles"] is None
+
+
+def test_lumber_commercial_flow_masks_the_2023_seam_on_the_live_store():
+    try:
+        import cotdata.config as cfg
+        have = (cfg.cot_legacy_dir() / "LBR_058644.parquet").exists()
+    except Exception:
+        have = False
+    if not have:
+        pytest.skip("no LBR legacy file in this COTDATA_STORE")
+    from cotmetrics.indexer import get_indexer
+
+    out = get_indexer().get_commercial_flow_data("Lumber")
+    for day in ("2023-02-21", "2023-02-28", "2023-03-14"):
+        assert pd.isna(out.loc[pd.Timestamp(day), "Comm dNet"]), day

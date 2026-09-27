@@ -132,6 +132,19 @@ def retail_net(category_frame, report):
     return _summed_net(category_frame, report, ("nonreportable",))
 
 
+def leg_flow_frame(net, prefix, source_code=None):
+    """One leg's weekly flow: "<prefix> dNet" and "<prefix> Flow Z 52w" on `net`'s index.
+
+    `net` is a net-contracts Series indexed by report date (a Legacy leg, for the
+    /analysis Positioning Index strip). `source_code` is aligned to it and masks
+    contract-population switches as in `weekly_change`.
+    """
+    out = pd.DataFrame(index=net.index)
+    out[flow_col(prefix)] = weekly_change(net, source_code=source_code)
+    out[flow_z_col(prefix)] = flow_z(out[flow_col(prefix)])
+    return out
+
+
 def speculator_frame(category_frame, report, symbol=None):
     """The columns the Positioning Index panel draws, on the category frame's index.
 
