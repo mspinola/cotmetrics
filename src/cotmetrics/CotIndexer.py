@@ -11,6 +11,7 @@ import yaml
 import cotmetrics as metrics
 import cotmetrics.categories as categories
 import cotmetrics.constants as const
+import cotmetrics.flow_roles as flow_roles
 import cotmetrics.flows as flows
 import cotmetrics.models as models
 import cotmetrics.symbol_code_map as symbol_code_map
@@ -1631,6 +1632,57 @@ class CotIndexer:
         # is why get_symbols_data does the same thing at the end.
         frame.attrs = attrs
         return frame
+
+    @lru_cache(maxsize=64)
+    def get_commercial_flow_data(self, name):
+        """The Legacy Commercial leg's weekly flow, for the Positioning Index strip.
+
+        "Comm dNet" and "Comm Flow Z 52w" (`flows.leg_flow_frame`), indexed by Date
+        like get_symbols_data. Commercial because every setup in the app is triggered
+        by the Commercial index at an extreme, and on equities it is the only leg the
+        gate reads (`utils.is_setup`). No lookback argument: the flow window is fixed.
+
+        The seam mask needs the per-row `_Quotes` contract code, which the Legacy
+        report does not carry; the Disaggregated or TFF frame of the same market does,
+        for the same report weeks from 2006, and every known seam falls after that
+        (RTY 2008 and 2017, LBR 2023). Before 2006 only the missed-week mask applies.
+
+        attrs: "flow_leg" (the leg's label), "is_equity", and "flow_roles" (the
+        market's `flow_roles` entry as a dict, or None without a Disaggregated or TFF
+        report), which carries how retail behaves there.
+        """
+        instrument = self.get_instrument_from_name(name)
+        if instrument is None or instrument.df is None or instrument.df.empty:
+            return None
+        df = instrument.df
+        if const.COMM_NET not in df.columns:
+            return None
+        dates = pd.DatetimeIndex(pd.to_datetime(df[const.REPORT_DATE_XLS]))
+        if dates.tz is not None:
+            dates = dates.tz_localize(None)
+        net = pd.Series(pd.to_numeric(df[const.COMM_NET], errors="coerce").to_numpy(),
+                        index=dates)
+
+        reports = [r for r in categories.REPORT_CHOICES
+                   if r in self.available_reports_for(name)]
+        roles = None
+        source = None
+        if reports:
+            roles = flow_roles.roles_for(reports[0], instrument.symbol).as_dict()
+            cat = self.get_category_data(name, reports[0], "Custom", with_price=False)
+            if cat is not None and const.SOURCE_CODE in cat.columns:
+                code = cat[const.SOURCE_CODE]
+                code = code[~code.index.duplicated()]
+                # Back-filled, so the pre-2006 rows read as the first known population
+                # rather than as a switch on every row.
+                source = code.reindex(net.index).bfill()
+
+        out = flows.leg_flow_frame(net, const.COMM, source_code=source)
+        out.index.name = const.DATE
+        out.attrs["flow_leg"] = "Commercial"
+        out.attrs["is_equity"] = self.is_equity(name)
+        out.attrs["flow_roles"] = roles
+        return out
 
     @lru_cache(maxsize=64)
     def get_speculator_data(self, name, lookback="Custom"):
