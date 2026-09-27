@@ -1,0 +1,211 @@
+report,sym,cohort,key,full_role,n_windows,agree_frac,window_roles,counterparty_set_stability,spec_set_stability,stable_enough
+disagg,CC,Prod,producer_merchant,COUNTERPARTY,70,1.0,COUNTERPARTY:70,0.271,0.6,False
+disagg,CC,Swap,swap,NEUTRAL,70,0.4,NEUTRAL:28 SPEC:28 COUNTERPARTY:14,0.271,0.6,False
+disagg,CC,MM,managed_money,SPEC,70,1.0,SPEC:70,0.271,0.6,False
+disagg,CC,Other,other_reportable,COUNTERPARTY,70,0.443,COUNTERPARTY:31 inert:21 NEUTRAL:18,0.271,0.6,False
+disagg,CC,NonRep,nonreportable,RETAIL,70,1.0,RETAIL:70,0.271,0.6,False
+disagg,CL,Prod,producer_merchant,NEUTRAL,70,0.343,COUNTERPARTY:46 NEUTRAL:24,0.086,1.0,False
+disagg,CL,Swap,swap,COUNTERPARTY,70,0.814,COUNTERPARTY:57 NEUTRAL:13,0.086,1.0,False
+disagg,CL,MM,managed_money,SPEC,70,1.0,SPEC:70,0.086,1.0,False
+disagg,CL,Other,other_reportable,COUNTERPARTY,70,0.7,COUNTERPARTY:49 NEUTRAL:21,0.086,1.0,False
+disagg,CL,NonRep,nonreportable,RETAIL,70,1.0,RETAIL:70,0.086,1.0,False
+disagg,CT,Prod,producer_merchant,COUNTERPARTY,70,1.0,COUNTERPARTY:70,0.843,0.486,True
+disagg,CT,Swap,swap,NEUTRAL,70,0.7,NEUTRAL:49 SPEC:16 COUNTERPARTY:5,0.843,0.486,True
+disagg,CT,MM,managed_money,SPEC,70,1.0,SPEC:70,0.843,0.486,True
+disagg,CT,Other,other_reportable,NEUTRAL,70,0.629,NEUTRAL:44 SPEC:20 COUNTERPARTY:6,0.843,0.486,True
+disagg,CT,NonRep,nonreportable,RETAIL,70,1.0,RETAIL:70,0.843,0.486,True
+disagg,GC,Prod,producer_merchant,COUNTERPARTY,70,1.0,COUNTERPARTY:70,0.6,0.986,True
+disagg,GC,Swap,swap,COUNTERPARTY,70,1.0,COUNTERPARTY:70,0.6,0.986,True
+disagg,GC,MM,managed_money,SPEC,70,1.0,SPEC:70,0.6,0.986,True
+disagg,GC,Other,other_reportable,NEUTRAL,70,0.586,NEUTRAL:41 COUNTERPARTY:28 SPEC:1,0.6,0.986,True
+disagg,GC,NonRep,nonreportable,RETAIL,70,1.0,RETAIL:70,0.6,0.986,True
+disagg,GF,Prod,producer_merchant,COUNTERPARTY,70,0.714,COUNTERPARTY:50 NEUTRAL:20,0.571,0.629,False
+disagg,GF,Swap,swap,NEUTRAL,70,0.471,NEUTRAL:33 SPEC:22 inert:15,0.571,0.629,False
+disagg,GF,MM,managed_money,SPEC,70,1.0,SPEC:70,0.571,0.629,False
+disagg,GF,Other,other_reportable,NEUTRAL,70,0.571,NEUTRAL:40 COUNTERPARTY:26 SPEC:4,0.571,0.629,False
+disagg,GF,NonRep,nonreportable,RETAIL,70,1.0,RETAIL:70,0.571,0.629,False
+disagg,HE,Prod,producer_merchant,COUNTERPARTY,70,1.0,COUNTERPARTY:70,0.386,0.371,False
+disagg,HE,Swap,swap,SPEC,70,0.371,NEUTRAL:44 SPEC:26,0.386,0.371,False
+disagg,HE,MM,managed_money,SPEC,70,1.0,SPEC:70,0.386,0.371,False
+disagg,HE,Other,other_reportable,COUNTERPARTY,70,0.386,NEUTRAL:43 COUNTERPARTY:27,0.386,0.371,False
+disagg,HE,NonRep,nonreportable,RETAIL,70,1.0,RETAIL:70,0.386,0.371,False
+disagg,HG,Prod,producer_merchant,COUNTERPARTY,70,1.0,COUNTERPARTY:70,0.629,1.0,True
+disagg,HG,Swap,swap,COUNTERPARTY,70,0.629,COUNTERPARTY:44 NEUTRAL:26,0.629,1.0,True
+disagg,HG,MM,managed_money,SPEC,70,1.0,SPEC:70,0.629,1.0,True
+disagg,HG,Other,other_reportable,COUNTERPARTY,70,1.0,COUNTERPARTY:70,0.629,1.0,True
+disagg,HG,NonRep,nonreportable,RETAIL,70,1.0,RETAIL:70,0.629,1.0,True
+disagg,HO,Prod,producer_merchant,COUNTERPARTY,70,0.9,COUNTERPARTY:63 NEUTRAL:7,0.414,0.943,False
+disagg,HO,Swap,swap,COUNTERPARTY,70,0.8,COUNTERPARTY:56 NEUTRAL:14,0.414,0.943,False
+disagg,HO,MM,managed_money,SPEC,70,0.943,SPEC:66 NEUTRAL:4,0.414,0.943,False
+disagg,HO,Other,other_reportable,COUNTERPARTY,70,0.657,COUNTERPARTY:46 inert:12 NEUTRAL:12,0.414,0.943,False
+disagg,HO,NonRep,nonreportable,RETAIL,70,1.0,RETAIL:70,0.414,0.943,False
+disagg,KC,Prod,producer_merchant,COUNTERPARTY,70,1.0,COUNTERPARTY:70,0.686,0.714,True
+disagg,KC,Swap,swap,NEUTRAL,70,0.714,NEUTRAL:50 SPEC:20,0.686,0.714,True
+disagg,KC,MM,managed_money,SPEC,70,1.0,SPEC:70,0.686,0.714,True
+disagg,KC,Other,other_reportable,NEUTRAL,70,0.686,NEUTRAL:48 COUNTERPARTY:22,0.686,0.714,True
+disagg,KC,NonRep,nonreportable,RETAIL,70,1.0,RETAIL:70,0.686,0.714,True
+disagg,LBR,Prod,producer_merchant,COUNTERPARTY,9,1.0,COUNTERPARTY:9,1.0,0.333,True
+disagg,LBR,Swap,swap,NEUTRAL,9,0.111,inert:7 SPEC:1 NEUTRAL:1,1.0,0.333,True
+disagg,LBR,MM,managed_money,SPEC,9,1.0,SPEC:9,1.0,0.333,True
+disagg,LBR,Other,other_reportable,SPEC,9,0.444,NEUTRAL:5 SPEC:4,1.0,0.333,True
+disagg,LBR,NonRep,nonreportable,RETAIL,9,1.0,RETAIL:9,1.0,0.333,True
+disagg,LE,Prod,producer_merchant,COUNTERPARTY,70,0.957,COUNTERPARTY:67 NEUTRAL:3,0.8,0.914,True
+disagg,LE,Swap,swap,NEUTRAL,70,0.971,NEUTRAL:68 SPEC:2,0.8,0.914,True
+disagg,LE,MM,managed_money,SPEC,70,0.957,SPEC:67 NEUTRAL:3,0.8,0.914,True
+disagg,LE,Other,other_reportable,NEUTRAL,70,0.829,NEUTRAL:58 COUNTERPARTY:11 SPEC:1,0.8,0.914,True
+disagg,LE,NonRep,nonreportable,RETAIL,70,1.0,RETAIL:70,0.8,0.914,True
+disagg,NG,Prod,producer_merchant,COUNTERPARTY,70,0.814,COUNTERPARTY:57 NEUTRAL:13,0.529,1.0,False
+disagg,NG,Swap,swap,NEUTRAL,70,0.571,NEUTRAL:40 COUNTERPARTY:30,0.529,1.0,False
+disagg,NG,MM,managed_money,SPEC,70,1.0,SPEC:70,0.529,1.0,False
+disagg,NG,Other,other_reportable,COUNTERPARTY,70,1.0,COUNTERPARTY:70,0.529,1.0,False
+disagg,NG,NonRep,nonreportable,RETAIL,70,1.0,RETAIL:70,0.529,1.0,False
+disagg,OJ,Prod,producer_merchant,COUNTERPARTY,70,1.0,COUNTERPARTY:70,0.971,0.9,True
+disagg,OJ,Swap,swap,inert,70,0.329,NEUTRAL:40 inert:23 SPEC:7,0.971,0.9,True
+disagg,OJ,MM,managed_money,SPEC,70,1.0,SPEC:70,0.971,0.9,True
+disagg,OJ,Other,other_reportable,COUNTERPARTY,70,0.971,COUNTERPARTY:68 NEUTRAL:2,0.971,0.9,True
+disagg,OJ,NonRep,nonreportable,RETAIL,70,1.0,RETAIL:70,0.971,0.9,True
+disagg,PA,Prod,producer_merchant,COUNTERPARTY,70,1.0,COUNTERPARTY:70,0.829,0.457,True
+disagg,PA,Swap,swap,COUNTERPARTY,70,1.0,COUNTERPARTY:70,0.829,0.457,True
+disagg,PA,MM,managed_money,SPEC,70,1.0,SPEC:70,0.829,0.457,True
+disagg,PA,Other,other_reportable,NEUTRAL,70,0.286,SPEC:38 NEUTRAL:20 COUNTERPARTY:12,0.829,0.457,True
+disagg,PA,NonRep,nonreportable,RETAIL,70,1.0,RETAIL:70,0.829,0.457,True
+disagg,PL,Prod,producer_merchant,COUNTERPARTY,70,1.0,COUNTERPARTY:70,0.771,0.829,True
+disagg,PL,Swap,swap,COUNTERPARTY,70,1.0,COUNTERPARTY:70,0.771,0.829,True
+disagg,PL,MM,managed_money,SPEC,70,1.0,SPEC:70,0.771,0.829,True
+disagg,PL,Other,other_reportable,NEUTRAL,70,0.6,NEUTRAL:42 COUNTERPARTY:16 SPEC:12,0.771,0.829,True
+disagg,PL,NonRep,nonreportable,RETAIL,70,1.0,RETAIL:70,0.771,0.829,True
+disagg,RB,Prod,producer_merchant,COUNTERPARTY,70,0.943,COUNTERPARTY:66 NEUTRAL:4,0.371,1.0,False
+disagg,RB,Swap,swap,NEUTRAL,70,0.571,NEUTRAL:40 COUNTERPARTY:30,0.371,1.0,False
+disagg,RB,MM,managed_money,SPEC,70,1.0,SPEC:70,0.371,1.0,False
+disagg,RB,Other,other_reportable,COUNTERPARTY,70,0.857,COUNTERPARTY:60 inert:10,0.371,1.0,False
+disagg,RB,NonRep,nonreportable,RETAIL,70,1.0,RETAIL:70,0.371,1.0,False
+disagg,SB,Prod,producer_merchant,COUNTERPARTY,70,1.0,COUNTERPARTY:70,0.314,1.0,False
+disagg,SB,Swap,swap,COUNTERPARTY,70,0.586,COUNTERPARTY:41 NEUTRAL:29,0.314,1.0,False
+disagg,SB,MM,managed_money,SPEC,70,1.0,SPEC:70,0.314,1.0,False
+disagg,SB,Other,other_reportable,COUNTERPARTY,70,0.471,COUNTERPARTY:33 NEUTRAL:21 inert:16,0.314,1.0,False
+disagg,SB,NonRep,nonreportable,RETAIL,70,1.0,RETAIL:70,0.314,1.0,False
+disagg,SI,Prod,producer_merchant,COUNTERPARTY,70,1.0,COUNTERPARTY:70,0.871,1.0,True
+disagg,SI,Swap,swap,COUNTERPARTY,70,1.0,COUNTERPARTY:70,0.871,1.0,True
+disagg,SI,MM,managed_money,SPEC,70,1.0,SPEC:70,0.871,1.0,True
+disagg,SI,Other,other_reportable,COUNTERPARTY,70,0.871,COUNTERPARTY:61 NEUTRAL:9,0.871,1.0,True
+disagg,SI,NonRep,nonreportable,RETAIL,70,1.0,RETAIL:70,0.871,1.0,True
+disagg,ZC,Prod,producer_merchant,COUNTERPARTY,70,1.0,COUNTERPARTY:70,0.914,0.414,True
+disagg,ZC,Swap,swap,NEUTRAL,70,0.514,NEUTRAL:36 SPEC:34,0.914,0.414,True
+disagg,ZC,MM,managed_money,SPEC,70,1.0,SPEC:70,0.914,0.414,True
+disagg,ZC,Other,other_reportable,NEUTRAL,70,0.729,NEUTRAL:51 SPEC:13 COUNTERPARTY:6,0.914,0.414,True
+disagg,ZC,NonRep,nonreportable,RETAIL,70,1.0,RETAIL:70,0.914,0.414,True
+disagg,ZL,Prod,producer_merchant,COUNTERPARTY,70,1.0,COUNTERPARTY:70,0.8,0.829,True
+disagg,ZL,Swap,swap,NEUTRAL,70,0.757,NEUTRAL:53 SPEC:12 COUNTERPARTY:5,0.8,0.829,True
+disagg,ZL,MM,managed_money,SPEC,70,1.0,SPEC:70,0.8,0.829,True
+disagg,ZL,Other,other_reportable,NEUTRAL,70,0.857,NEUTRAL:60 COUNTERPARTY:9 inert:1,0.8,0.829,True
+disagg,ZL,NonRep,nonreportable,RETAIL,70,1.0,RETAIL:70,0.8,0.829,True
+disagg,ZM,Prod,producer_merchant,COUNTERPARTY,70,1.0,COUNTERPARTY:70,0.786,0.671,True
+disagg,ZM,Swap,swap,NEUTRAL,70,0.614,NEUTRAL:43 COUNTERPARTY:15 inert:9 SPEC:3,0.786,0.671,True
+disagg,ZM,MM,managed_money,SPEC,70,1.0,SPEC:70,0.786,0.671,True
+disagg,ZM,Other,other_reportable,NEUTRAL,70,0.5,NEUTRAL:35 SPEC:21 inert:11 COUNTERPARTY:3,0.786,0.671,True
+disagg,ZM,NonRep,nonreportable,RETAIL,70,1.0,RETAIL:70,0.786,0.671,True
+disagg,ZS,Prod,producer_merchant,COUNTERPARTY,70,1.0,COUNTERPARTY:70,0.614,0.571,True
+disagg,ZS,Swap,swap,NEUTRAL,70,0.4,SPEC:30 NEUTRAL:28 COUNTERPARTY:12,0.614,0.571,True
+disagg,ZS,MM,managed_money,SPEC,70,1.0,SPEC:70,0.614,0.571,True
+disagg,ZS,Other,other_reportable,NEUTRAL,70,0.7,NEUTRAL:49 COUNTERPARTY:21,0.614,0.571,True
+disagg,ZS,NonRep,nonreportable,RETAIL,70,1.0,RETAIL:70,0.614,0.571,True
+disagg,ZW,Prod,producer_merchant,COUNTERPARTY,70,1.0,COUNTERPARTY:70,0.471,0.829,False
+disagg,ZW,Swap,swap,NEUTRAL,70,0.471,NEUTRAL:33 COUNTERPARTY:25 SPEC:12,0.471,0.829,False
+disagg,ZW,MM,managed_money,SPEC,70,1.0,SPEC:70,0.471,0.829,False
+disagg,ZW,Other,other_reportable,COUNTERPARTY,70,0.757,COUNTERPARTY:53 NEUTRAL:17,0.471,0.829,False
+disagg,ZW,NonRep,nonreportable,RETAIL,70,1.0,RETAIL:70,0.471,0.829,False
+tff,6A,Dealer,dealer,COUNTERPARTY,70,0.829,COUNTERPARTY:58 NEUTRAL:12,0.657,0.086,True
+tff,6A,AssetMgr,asset_manager,SPEC,70,0.571,SPEC:40 NEUTRAL:29 inert:1,0.657,0.086,True
+tff,6A,LevFund,leveraged,SPEC,70,0.514,SPEC:36 COUNTERPARTY:24 NEUTRAL:10,0.657,0.086,True
+tff,6A,Other,other_reportable,inert,70,0.771,inert:54 NEUTRAL:14 SPEC:2,0.657,0.086,True
+tff,6A,NonRep,nonreportable,RETAIL,70,1.0,RETAIL:70,0.657,0.086,True
+tff,6B,Dealer,dealer,COUNTERPARTY,70,1.0,COUNTERPARTY:70,0.743,0.257,True
+tff,6B,AssetMgr,asset_manager,SPEC,70,0.757,SPEC:53 NEUTRAL:13 COUNTERPARTY:4,0.743,0.257,True
+tff,6B,LevFund,leveraged,SPEC,70,0.5,SPEC:35 NEUTRAL:28 COUNTERPARTY:7,0.743,0.257,True
+tff,6B,Other,other_reportable,inert,70,0.586,inert:41 NEUTRAL:21 COUNTERPARTY:7 SPEC:1,0.743,0.257,True
+tff,6B,NonRep,nonreportable,RETAIL,70,1.0,RETAIL:70,0.743,0.257,True
+tff,6C,Dealer,dealer,COUNTERPARTY,70,0.886,COUNTERPARTY:62 NEUTRAL:8,0.486,0.0,False
+tff,6C,AssetMgr,asset_manager,SPEC,70,0.643,SPEC:45 NEUTRAL:17 COUNTERPARTY:8,0.486,0.0,False
+tff,6C,LevFund,leveraged,SPEC,70,0.357,NEUTRAL:28 SPEC:25 COUNTERPARTY:17,0.486,0.0,False
+tff,6C,Other,other_reportable,inert,70,0.414,NEUTRAL:30 inert:29 COUNTERPARTY:11,0.486,0.0,False
+tff,6C,NonRep,nonreportable,RETAIL,70,1.0,RETAIL:70,0.486,0.0,False
+tff,6E,Dealer,dealer,COUNTERPARTY,70,1.0,COUNTERPARTY:70,0.971,0.371,True
+tff,6E,AssetMgr,asset_manager,SPEC,70,0.829,SPEC:58 NEUTRAL:12,0.971,0.371,True
+tff,6E,LevFund,leveraged,SPEC,70,0.629,SPEC:44 NEUTRAL:26,0.971,0.371,True
+tff,6E,Other,other_reportable,inert,70,0.529,inert:37 NEUTRAL:22 SPEC:9 COUNTERPARTY:2,0.971,0.371,True
+tff,6E,NonRep,nonreportable,RETAIL,70,1.0,RETAIL:70,0.971,0.371,True
+tff,6J,Dealer,dealer,COUNTERPARTY,70,1.0,COUNTERPARTY:70,0.943,0.343,True
+tff,6J,AssetMgr,asset_manager,SPEC,70,0.786,SPEC:55 NEUTRAL:15,0.943,0.343,True
+tff,6J,LevFund,leveraged,SPEC,70,0.714,SPEC:50 NEUTRAL:20,0.943,0.343,True
+tff,6J,Other,other_reportable,NEUTRAL,70,0.214,inert:40 NEUTRAL:15 SPEC:11 COUNTERPARTY:4,0.943,0.343,True
+tff,6J,NonRep,nonreportable,RETAIL,70,1.0,RETAIL:70,0.943,0.343,True
+tff,6M,Dealer,dealer,COUNTERPARTY,70,0.943,COUNTERPARTY:66 NEUTRAL:4,0.714,0.586,True
+tff,6M,AssetMgr,asset_manager,NEUTRAL,70,0.414,NEUTRAL:29 SPEC:26 COUNTERPARTY:14 inert:1,0.714,0.586,True
+tff,6M,LevFund,leveraged,SPEC,70,0.729,SPEC:51 NEUTRAL:19,0.714,0.586,True
+tff,6M,Other,other_reportable,NEUTRAL,70,0.357,inert:31 NEUTRAL:25 SPEC:12 COUNTERPARTY:2,0.714,0.586,True
+tff,6M,NonRep,nonreportable,RETAIL,70,1.0,RETAIL:70,0.714,0.586,True
+tff,6N,Dealer,dealer,COUNTERPARTY,70,0.943,COUNTERPARTY:66 NEUTRAL:4,0.771,0.443,True
+tff,6N,AssetMgr,asset_manager,SPEC,70,0.529,SPEC:37 inert:22 NEUTRAL:11,0.771,0.443,True
+tff,6N,LevFund,leveraged,NEUTRAL,70,0.229,SPEC:39 NEUTRAL:16 COUNTERPARTY:15,0.771,0.443,True
+tff,6N,Other,other_reportable,inert,70,0.914,inert:64 NEUTRAL:5 COUNTERPARTY:1,0.771,0.443,True
+tff,6N,NonRep,nonreportable,RETAIL,70,1.0,RETAIL:70,0.771,0.443,True
+tff,6S,Dealer,dealer,COUNTERPARTY,70,1.0,COUNTERPARTY:70,0.571,0.0,False
+tff,6S,AssetMgr,asset_manager,SPEC,70,0.529,SPEC:37 inert:33,0.571,0.0,False
+tff,6S,LevFund,leveraged,SPEC,70,0.371,COUNTERPARTY:28 SPEC:26 NEUTRAL:16,0.571,0.0,False
+tff,6S,Other,other_reportable,inert,70,0.971,inert:68 COUNTERPARTY:2,0.571,0.0,False
+tff,6S,NonRep,nonreportable,RETAIL,70,1.0,RETAIL:70,0.571,0.0,False
+tff,BTC,Dealer,dealer,NEUTRAL,23,0.261,COUNTERPARTY:9 NEUTRAL:6 inert:5 SPEC:3,0.391,0.783,False
+tff,BTC,AssetMgr,asset_manager,SPEC,23,0.913,SPEC:21 inert:2,0.391,0.783,False
+tff,BTC,LevFund,leveraged,COUNTERPARTY,23,0.913,COUNTERPARTY:21 NEUTRAL:2,0.391,0.783,False
+tff,BTC,Other,other_reportable,NEUTRAL,23,0.565,NEUTRAL:13 COUNTERPARTY:10,0.391,0.783,False
+tff,BTC,NonRep,nonreportable,RETAIL,23,1.0,RETAIL:23,0.391,0.783,False
+tff,DX,Dealer,dealer,COUNTERPARTY,70,0.4,NEUTRAL:42 COUNTERPARTY:28,0.357,0.457,False
+tff,DX,AssetMgr,asset_manager,SPEC,70,0.786,SPEC:55 inert:15,0.357,0.457,False
+tff,DX,LevFund,leveraged,NEUTRAL,70,0.543,NEUTRAL:38 COUNTERPARTY:27 SPEC:5,0.357,0.457,False
+tff,DX,Other,other_reportable,NEUTRAL,70,0.457,NEUTRAL:32 SPEC:23 inert:15,0.357,0.457,False
+tff,DX,NonRep,nonreportable,RETAIL,70,1.0,RETAIL:70,0.357,0.457,False
+tff,ES,Dealer,dealer,NEUTRAL,70,0.343,SPEC:30 NEUTRAL:24 COUNTERPARTY:16,0.343,0.571,False
+tff,ES,AssetMgr,asset_manager,SPEC,70,1.0,SPEC:70,0.343,0.571,False
+tff,ES,LevFund,leveraged,COUNTERPARTY,70,0.986,COUNTERPARTY:69 NEUTRAL:1,0.343,0.571,False
+tff,ES,Other,other_reportable,inert,70,0.186,COUNTERPARTY:30 NEUTRAL:27 inert:13,0.343,0.571,False
+tff,ES,NonRep,nonreportable,RETAIL,70,1.0,RETAIL:70,0.343,0.571,False
+tff,ETH,Dealer,dealer,SPEC,11,0.636,SPEC:7 NEUTRAL:4,0.273,0.636,False
+tff,ETH,AssetMgr,asset_manager,SPEC,11,1.0,SPEC:11,0.273,0.636,False
+tff,ETH,LevFund,leveraged,COUNTERPARTY,11,1.0,COUNTERPARTY:11,0.273,0.636,False
+tff,ETH,Other,other_reportable,inert,11,0.273,COUNTERPARTY:8 inert:3,0.273,0.636,False
+tff,ETH,NonRep,nonreportable,RETAIL,11,1.0,RETAIL:11,0.273,0.636,False
+tff,NQ,Dealer,dealer,COUNTERPARTY,70,0.486,COUNTERPARTY:34 NEUTRAL:26 SPEC:10,0.471,0.443,False
+tff,NQ,AssetMgr,asset_manager,SPEC,70,1.0,SPEC:70,0.471,0.443,False
+tff,NQ,LevFund,leveraged,NEUTRAL,70,0.3,COUNTERPARTY:26 SPEC:23 NEUTRAL:21,0.471,0.443,False
+tff,NQ,Other,other_reportable,inert,70,0.671,inert:47 NEUTRAL:17 SPEC:6,0.471,0.443,False
+tff,NQ,NonRep,nonreportable,RETAIL,70,1.0,RETAIL:70,0.471,0.443,False
+tff,RTY,Dealer,dealer,COUNTERPARTY,70,0.986,COUNTERPARTY:69 NEUTRAL:1,0.657,0.914,True
+tff,RTY,AssetMgr,asset_manager,SPEC,70,1.0,SPEC:70,0.657,0.914,True
+tff,RTY,LevFund,leveraged,NEUTRAL,70,0.6,NEUTRAL:42 COUNTERPARTY:22 SPEC:6,0.657,0.914,True
+tff,RTY,Other,other_reportable,inert,70,0.7,inert:49 NEUTRAL:11 COUNTERPARTY:10,0.657,0.914,True
+tff,RTY,NonRep,nonreportable,RETAIL,70,1.0,RETAIL:70,0.657,0.914,True
+tff,YM,Dealer,dealer,NEUTRAL,70,0.486,NEUTRAL:34 COUNTERPARTY:31 SPEC:5,0.457,0.586,False
+tff,YM,AssetMgr,asset_manager,SPEC,70,0.929,SPEC:65 NEUTRAL:4 inert:1,0.457,0.586,False
+tff,YM,LevFund,leveraged,NEUTRAL,70,0.657,NEUTRAL:46 SPEC:22 COUNTERPARTY:2,0.457,0.586,False
+tff,YM,Other,other_reportable,inert,70,0.686,inert:48 NEUTRAL:16 COUNTERPARTY:6,0.457,0.586,False
+tff,YM,NonRep,nonreportable,RETAIL,70,1.0,RETAIL:70,0.457,0.586,False
+tff,ZB,Dealer,dealer,COUNTERPARTY,70,0.714,COUNTERPARTY:50 NEUTRAL:17 inert:3,0.414,0.5,False
+tff,ZB,AssetMgr,asset_manager,SPEC,70,0.6,SPEC:42 NEUTRAL:28,0.414,0.5,False
+tff,ZB,LevFund,leveraged,NEUTRAL,70,0.571,NEUTRAL:40 COUNTERPARTY:23 SPEC:7,0.414,0.5,False
+tff,ZB,Other,other_reportable,NEUTRAL,70,0.543,NEUTRAL:38 inert:20 COUNTERPARTY:11 SPEC:1,0.414,0.5,False
+tff,ZB,NonRep,nonreportable,RETAIL,70,1.0,RETAIL:70,0.414,0.5,False
+tff,ZF,Dealer,dealer,COUNTERPARTY,70,0.757,COUNTERPARTY:53 NEUTRAL:15 inert:2,0.329,0.657,False
+tff,ZF,AssetMgr,asset_manager,SPEC,70,0.657,SPEC:46 NEUTRAL:24,0.329,0.657,False
+tff,ZF,LevFund,leveraged,NEUTRAL,70,0.557,NEUTRAL:39 COUNTERPARTY:31,0.329,0.657,False
+tff,ZF,Other,other_reportable,inert,70,0.029,NEUTRAL:43 COUNTERPARTY:25 inert:2,0.329,0.657,False
+tff,ZF,NonRep,nonreportable,RETAIL,70,1.0,RETAIL:70,0.329,0.657,False
+tff,ZN,Dealer,dealer,NEUTRAL,70,0.286,COUNTERPARTY:38 NEUTRAL:20 SPEC:12,0.171,0.729,False
+tff,ZN,AssetMgr,asset_manager,SPEC,70,0.743,SPEC:52 NEUTRAL:18,0.171,0.729,False
+tff,ZN,LevFund,leveraged,NEUTRAL,70,0.414,COUNTERPARTY:35 NEUTRAL:29 SPEC:6,0.171,0.729,False
+tff,ZN,Other,other_reportable,COUNTERPARTY,70,0.571,COUNTERPARTY:40 NEUTRAL:23 inert:7,0.171,0.729,False
+tff,ZN,NonRep,nonreportable,RETAIL,70,1.0,RETAIL:70,0.171,0.729,False
+tff,ZT,Dealer,dealer,NEUTRAL,70,0.329,COUNTERPARTY:47 NEUTRAL:23,0.171,0.343,False
+tff,ZT,AssetMgr,asset_manager,NEUTRAL,70,0.529,NEUTRAL:37 SPEC:26 COUNTERPARTY:7,0.171,0.343,False
+tff,ZT,LevFund,leveraged,NEUTRAL,70,0.743,NEUTRAL:52 SPEC:18,0.171,0.343,False
+tff,ZT,Other,other_reportable,NEUTRAL,70,0.771,NEUTRAL:54 COUNTERPARTY:14 SPEC:2,0.171,0.343,False
+tff,ZT,NonRep,nonreportable,RETAIL,70,1.0,RETAIL:70,0.171,0.343,False

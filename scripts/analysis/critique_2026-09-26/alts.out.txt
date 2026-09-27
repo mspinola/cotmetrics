@@ -1,0 +1,42 @@
+== Correct statistics on the doc's headline rows (fwd13, Tuesday-anchored as in the doc) ==
+PARTIAL      n= 541 mean=1.22% naive_t(vs0)=5.59  excess-vs-uncond=-0.03% HAC(NW lag12) t=-0.06  non-overlap thinned n=74 t(vs0)=1.69  block(13w) bootstrap p(excess>0)=0.505 CI[-0.93,+0.87]%
+QUIET        n= 449 mean=1.17% naive_t(vs0)=4.15  excess-vs-uncond=-0.07% HAC(NW lag12) t=-0.11  non-overlap thinned n=73 t(vs0)=1.87  block(13w) bootstrap p(excess>0)=0.535 CI[-1.36,+1.15]%
+VALUE_ACCUM  n=  21 mean=2.20% naive_t(vs0)=1.92  excess-vs-uncond=+0.95% HAC(NW lag12) t=+0.76  non-overlap thinned n=16 t(vs0)=1.67  block(13w) bootstrap p(excess>0)=0.222 CI[-1.69,+3.29]%
+
+== Alternatives to the 8-state table, fwd13, descriptive only (each is a NEW VARIANT if pursued) ==
+z_MM - z_Comm                    spearman with fwd13=-0.031 fwd4=-0.029  sd=1.96  lag1 ac=+0.182
+z_Other - z_MM                   spearman with fwd13=+0.018 fwd4=+0.005  sd=1.57  lag1 ac=+0.013
+z_Other - (z_MM+z_NonRep)/2      spearman with fwd13=+0.020 fwd4=+0.012  sd=1.42  lag1 ac=-0.070
+2-week sum of z, threshold sqrt(2): all-three-active weeks=35  VALUE_ACCUM-analogue n=12 mean=2.20% hit=50%
+3-week sum of z, threshold sqrt(3): all-three-active weeks=41  VALUE_ACCUM-analogue n=15 mean=1.44% hit=60%
+
+MM x NonRep two-cohort table (fwd13 %):
+               count  mean
+s_MM s_NonRep             
+-1   -1           53  1.98
+      0           73  1.14
+      1           19  2.72
+ 0   -1           80  0.46
+      0          570  1.33
+      1           95  0.94
+ 1   -1           20  2.24
+      0           95  0.89
+      1           40  1.13
+
+ordinal n_active x net_sign (fwd13 %):
+                   count  mean
+n_active net_sign             
+0         0          449  1.17
+1        -1          162  1.37
+          1          191  0.93
+2        -2           48  1.16
+          0           95  1.25
+          2           45  1.87
+3        -3            5  2.27
+         -1           26  1.57
+          1           21  3.06
+          3            3 -0.33
+
+real	0m1.247s
+user	0m0.772s
+sys	0m0.168s

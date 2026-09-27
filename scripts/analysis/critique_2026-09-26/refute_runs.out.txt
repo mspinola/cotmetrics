@@ -1,0 +1,55 @@
+== named states, pooled over 42 markets: weeks vs episodes (first week of a run) ==
+                      weeks  episodes  runs_ge2  gaps_lt_h  gaps_eq_1  n_gaps  weeks/episodes  maxrun
+state                                                                                                
+VALUE_ACCUM             401       380        18         86         21     362           1.055       3
+TREND+RETAIL_BUY        398       380        16        100         18     359           1.047       3
+MM_SELL_OTHERS_BUY      373       350        20         81         23     332           1.066       4
+MM_ALONE_BUY            362       350        12         64         13     322           1.034       2
+BROAD_LIQUID            155       151         4         18          4     125           1.026       2
+BROAD_ACCUM             141       138         3         15          3     111           1.022       2
+RETAIL_ALONE_BUY         77        74         3          6          3      50           1.041       2
+INST_BUY_RETAIL_SELL     70        70         0          4          0      42           1.000       1
+
+== same, split by report ==
+                             weeks  episodes  runs_ge2  gaps_lt_h  n_gaps  weeks/episodes
+report state                                                                             
+disagg BROAD_ACCUM              56        54         2          6      40           1.037
+       BROAD_LIQUID             73        72         1          7      56           1.014
+       INST_BUY_RETAIL_SELL     41        41         0          3      27           1.000
+       MM_ALONE_BUY            202       196         6         42     181           1.031
+       MM_SELL_OTHERS_BUY      220       201        16         53     198           1.095
+       RETAIL_ALONE_BUY         50        48         2          5      35           1.042
+       TREND+RETAIL_BUY        315       297        16         88     293           1.061
+       VALUE_ACCUM             310       290        17         78     288           1.069
+tff    BROAD_ACCUM              85        84         1          9      71           1.012
+       BROAD_LIQUID             82        79         3         11      69           1.038
+       INST_BUY_RETAIL_SELL     29        29         0          1      15           1.000
+       MM_ALONE_BUY            160       154         6         22     141           1.039
+       MM_SELL_OTHERS_BUY      153       149         4         28     134           1.027
+       RETAIL_ALONE_BUY         27        26         1          1      15           1.038
+       TREND+RETAIL_BUY         83        83         0         12      66           1.000
+       VALUE_ACCUM              91        90         1          8      74           1.011
+
+== single-cohort same-sign runs, pooled: weeks vs episodes ==
+                              weeks  episodes  weeks/episodes  maxrun
+report cohort           move                                         
+disagg managed_money    buy    3493      2462           1.419       7
+                        sell   3535      2554           1.384       8
+       nonreportable    buy    3507      3018           1.162       5
+                        sell   3463      2965           1.168       5
+       other_reportable buy    3299      2651           1.244       6
+                        sell   3264      2706           1.206       5
+tff    asset_manager    buy    2503      1960           1.277       6
+                        sell   2579      1994           1.293       6
+       leveraged        buy    2418      1977           1.223       5
+                        sell   2502      2033           1.231       6
+       nonreportable    buy    2416      2114           1.143       5
+                        sell   2430      2123           1.145       4
+
+== GC VALUE_ACCUM ==
+report sym       state  weeks  episodes  maxrun  runs_ge2  gaps_lt_h  gaps_eq_1  n_gaps
+disagg  GC VALUE_ACCUM     21        21       1         0          6          0      20
+
+real	0m0.633s
+user	0m0.729s
+sys	0m0.114s

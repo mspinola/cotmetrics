@@ -1,0 +1,78 @@
+=== DISAGG counterparty correlations of dNet (reproduced) ===
+sym       cls  mm_comm  mm_prod  mm_swap absorber  mm_vs_negOtherNonrep  var_share_mm
+ GF livestock    -0.67    -0.68    -0.02     prod                  0.83          0.65
+ HE livestock    -0.84    -0.83     0.04     prod                  0.54          0.77
+ LE livestock    -0.86    -0.85     0.14     prod                  0.60          0.79
+ CT     softs    -0.91    -0.88    -0.03     prod                 -0.12          0.82
+ CC     softs    -0.92    -0.87    -0.21     prod                  0.34          0.86
+ KC     softs    -0.94    -0.90    -0.08     prod                  0.40          0.89
+LBR     softs    -0.81    -0.81     0.01     prod                  0.31          0.68
+ OJ     softs    -0.89    -0.88    -0.05     prod                  0.16          0.77
+ SB     softs    -0.93    -0.85    -0.33     prod                 -0.01          0.82
+ HG    metals    -0.88    -0.85    -0.39     prod                  0.64          0.82
+ GC    metals    -0.92    -0.74    -0.82     swap                  0.08          0.85
+ PA    metals    -0.90    -0.75    -0.76     swap                  0.07          0.84
+ PL    metals    -0.92    -0.79    -0.83     swap                  0.59          0.88
+ SI    metals    -0.91    -0.80    -0.82     swap                  0.50          0.85
+ CL    energy    -0.76    -0.50    -0.59     swap                  0.48          0.70
+ NG    energy    -0.72    -0.48    -0.57     swap                  0.80          0.64
+ RB    energy    -0.89    -0.83    -0.32     prod                  0.27          0.75
+ HO    energy    -0.86    -0.82    -0.31     prod                  0.07          0.66
+ ZC    grains    -0.91    -0.91     0.13     prod                  0.39          0.86
+ ZS    grains    -0.90    -0.88     0.01     prod                  0.28          0.84
+ ZM    grains    -0.93    -0.91    -0.11     prod                 -0.01          0.87
+ ZL    grains    -0.92    -0.90    -0.02     prod                 -0.06          0.83
+ ZW    grains    -0.90    -0.88    -0.15     prod                  0.55          0.84
+
+median:
+ mm_comm                -0.90
+mm_prod                -0.85
+mm_swap                -0.15
+mm_vs_negOtherNonrep    0.34
+var_share_mm            0.82
+
+absorber by class:
+ cls        absorber
+energy     prod        2
+           swap        2
+grains     prod        5
+livestock  prod        3
+metals     prod        1
+           swap        4
+softs      prod        6
+
+swap-absorbed markets: ['GC', 'PA', 'PL', 'SI', 'CL', 'NG']
+prod-absorbed markets: ['GF', 'HE', 'LE', 'CT', 'CC', 'KC', 'LBR', 'OJ', 'SB', 'HG', 'RB', 'HO', 'ZC', 'ZS', 'ZM', 'ZL', 'ZW']
+median mm_prod on prod-absorbed: -0.87  median mm_swap on prod-absorbed: -0.05
+
+=== Under the doc's thresholded state: QUIET weeks where |z_Comm| > 1 ===
+sym  weeks  quiet  quiet_but_comm_active  any_state_comm_active
+ GF   1033    446                     75                    310
+ HE   1033    398                     33                    316
+ LE   1033    443                     48                    316
+ CT   1033    447                      4                    305
+ CC   1033    448                     17                    281
+ KC   1033    449                     25                    302
+LBR   1033    495                     30                    272
+ OJ   1033    496                     25                    271
+ SB   1033    448                     11                    311
+ HG   1033    431                     32                    304
+ GC   1033    431                     12                    311
+ PA   1033    437                     11                    284
+ PL   1033    420                     15                    307
+ SI   1033    427                     23                    301
+ CL   1033    382                     36                    332
+ NG   1033    459                     84                    321
+ RB   1033    422                     19                    302
+ HO   1033    415                     27                    332
+ ZC   1033    450                     20                    316
+ ZS   1033    414                     18                    322
+ ZM   1033    383                      7                    311
+ ZL   1033    424                     18                    302
+ ZW   1033    420                     23                    303
+pooled: quiet=9985  quiet_but_comm_active=613 (6.1% of quiet)  weeks=23759
+GC: quiet=431 quiet_but_comm_active=12
+
+real	0m0.489s
+user	0m0.571s
+sys	0m0.087s
