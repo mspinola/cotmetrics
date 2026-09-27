@@ -88,13 +88,10 @@ NORMALIZED = " Norm"
 ZSCORE = " Zscore"
 MOMENTUM = " Move"
 
-# One role series per market (cotmetrics.flows, cotmetrics.flow_roles): the speculator
-# net and the retail net, and the speculator's weekly flow z. Every parameter below was
-# fixed before any result was read and has never been searched; the doc that fixed it
-# is named beside it.
-SPECULATOR = "Speculator"       # prefix, like a category prefix: "Speculator Net" ...
-RETAIL = "Retail"               # Non-Reportable, by label; its behaviour is per market
-NET_SUFFIX = " Net"
+# Weekly flow of a COT leg (cotmetrics.flows): the net change each report week over
+# its own rolling standard deviation. Every parameter below was fixed before any
+# result was read and has never been searched; the doc that fixed it is named
+# beside it.
 FLOW = " dNet"                  # net position change, contracts, one report week
 FLOW_Z = " Flow Z"              # dNet / its own rolling sd; the window rides in the name
 SOURCE_CODE = "Source Code"     # which CFTC contract code a row came from (seam mask)
