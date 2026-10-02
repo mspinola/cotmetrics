@@ -9,6 +9,8 @@ The dangerous failure here is not "no price". It is the WRONG price, silently, o
 market that has a perfectly good one of its own. That is one careless dict entry away,
 so most of this file guards the blast radius rather than the feature.
 """
+import os
+
 import pytest
 
 from cotmetrics.market_data import PRICE_PROXIES, price_symbol
@@ -85,6 +87,11 @@ def test_the_proxy_has_bars_where_a_store_is_populated(symbol, etf):
     """
     marketdata = pytest.importorskip("marketdata")
 
+    # No store configured is the same "nothing to check here" as an empty one.
+    # marketdata raises rather than returning empty when MARKETDATA_STORE is unset,
+    # so without this a dev checkout fails here instead of skipping.
+    if not os.environ.get("MARKETDATA_STORE", "").strip():
+        pytest.skip("MARKETDATA_STORE is not set, so there is no store to check")
     if etf not in [s.internal for s in marketdata.all_symbols()]:
         pytest.skip(f"{etf} not in this marketdata checkout's registry")
     df = marketdata.get_bars(etf)
