@@ -160,6 +160,37 @@ def get_matrix_data(asset_classes, lookback, target_date=None):
     return pd.DataFrame(rows).sort_values(by=["Asset Class", "Asset"])
 
 
+def newest_report_date(df: pd.DataFrame):
+    """The newest COT week any row of the matrix describes, as YYYY-MM-DD, or None.
+
+    Without a target_date, get_matrix_data does NOT pin rows to one week: each market
+    contributes its own newest row. So the first row speaks only for the market that
+    sorts first, which is Crypto. On 2026-10-04 that was Bitcoin, one of 17 markets
+    still on 2026-09-22 while the other 25 had 2026-09-29, and the whole email went
+    out labelled with the older week.
+    """
+    if df.empty or "Date" not in df.columns:
+        return None
+    dates = pd.to_datetime(df["Date"], errors="coerce")
+    if dates.isna().all():
+        return None
+    return dates.max().strftime("%Y-%m-%d")
+
+
+def lagging_markets(df: pd.DataFrame, report_date: str) -> list:
+    """(asset, its date) for every row older than `report_date`, in matrix order.
+
+    A market can trail legitimately (the CFTC skipped it, or it was dropped), so this
+    is reported rather than filtered: a reader should see that a row is a week old,
+    not get a table that silently mixes two weeks under one heading.
+    """
+    if df.empty or "Date" not in df.columns or not report_date:
+        return []
+    dates = pd.to_datetime(df["Date"], errors="coerce")
+    behind = df[dates < pd.Timestamp(report_date)]
+    return list(zip(behind["Asset"].astype(str), behind["Date"].astype(str)))
+
+
 def generate_matrix_html(df: pd.DataFrame, report_date: str = None) -> str:
     """
     Render the Signal Matrix DataFrame as a self-contained HTML email table
@@ -312,12 +343,20 @@ def generate_matrix_html(df: pd.DataFrame, report_date: str = None) -> str:
         data_row += "</tr>"
         rows_html.append(data_row)
 
+    behind = lagging_markets(df, report_date)
+    behind_html = ""
+    if behind:
+        listed = ", ".join(f"{asset} ({date})" for asset, date in behind)
+        behind_html = (f'<p class="sub" style="color:{_BEAR}">{len(behind)} of {len(df)} '
+                       f'markets are behind {report_date}: {listed}</p>')
+
     html = f"""<!DOCTYPE html>
 <html>
 <head><meta charset="utf-8">{style}</head>
 <body>
   <h2>📊 COT Signal Matrix — {report_date}</h2>
   <p class="sub">Auto-generated after new CFTC Commitment of Traders data was processed. Full CSV attached.</p>
+  {behind_html}
   <table>
     <thead>
       {group_row}

@@ -9,6 +9,7 @@ import pandas as pd
 import pytest
 
 import cotmetrics.weekly_email as we
+from cotmetrics.reports import generate_matrix_html, lagging_markets
 from cotmetrics.weekly_email import (
     WeeklyEmailNotConfigured,
     build_message,
@@ -89,6 +90,36 @@ def test_the_report_date_comes_from_the_frame_not_the_clock():
 def test_an_empty_frame_falls_back_to_today():
     """There is no week to name, and a subject line still has to say something."""
     assert report_date_for(pd.DataFrame()) != ""
+
+
+# The 2026-10-04 send, reduced: rows sorted by asset class, the first market one week
+# behind the rest. The subject said 2026-09-22 for a matrix mostly on 2026-09-29.
+MIXED = pd.DataFrame([
+    {"Date": "2026-09-22", "Asset Class": "Crypto", "Asset": "Bitcoin",
+     "Comm Index": 50, "Lrg Index": 50, "Sml Index": 50},
+    {"Date": "2026-09-29", "Asset Class": "Currencies", "Asset": "Euro",
+     "Comm Index": 50, "Lrg Index": 50, "Sml Index": 50},
+    {"Date": "2026-09-29", "Asset Class": "Metals", "Asset": "Gold",
+     "Comm Index": 50, "Lrg Index": 50, "Sml Index": 50},
+])
+
+
+def test_the_report_date_is_the_newest_week_not_the_first_row():
+    assert report_date_for(MIXED) == "2026-09-29"
+
+
+def test_markets_behind_the_report_week_are_named():
+    assert lagging_markets(MIXED, "2026-09-29") == [("Bitcoin", "2026-09-22")]
+    assert lagging_markets(MATRIX, "2026-08-11") == []
+
+
+def test_the_body_says_which_markets_are_behind():
+    html = generate_matrix_html(MIXED, report_date="2026-09-29")
+    assert "1 of 3 markets are behind 2026-09-29: Bitcoin (2026-09-22)" in html
+
+
+def test_a_body_with_every_market_current_says_nothing_about_lag():
+    assert "are behind" not in generate_matrix_html(MATRIX, report_date="2026-08-11")
 
 
 def test_the_subject_names_the_report_week():
