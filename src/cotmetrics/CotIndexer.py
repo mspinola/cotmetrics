@@ -124,6 +124,59 @@ def _no_new_week(current, last_known):
     return current is None or current == last_known
 
 
+#: The cotdata store subdirectories an index build reads.
+_INDEXED_DIRS = ("cot_legacy", "cot_disagg", "cot_tff", "cot_supplemental")
+
+
+def _store_fingerprint():
+    """What the store's COT files look like now, or None if it cannot be read.
+
+    The week in status.json says WHEN a release arrived, not whether every market's
+    file did. An index built while a replica is still syncing reads whichever files
+    have landed, adopts the new week, and from then on _no_new_week stands down until
+    the next release. On 2026-10-04 the VPS emailed a matrix with 25 markets on the
+    new week and 17 a week behind, and nothing would have rebuilt it before Friday.
+
+    Sizes, not mtimes, on purpose. cotdata rewrites every per-code file on every run,
+    new data or not, and rsync -a carries the new mtime across, so an mtime
+    fingerprint would rebuild the index after every daily catch-up for nothing. A new
+    weekly row always changes a file's size.
+    """
+    try:
+        import cotdata.config as cfg
+        root = cfg.store_root()
+        return frozenset(
+            (f"{d}/{p.name}", p.stat().st_size)
+            for d in _INDEXED_DIRS if (root / d).is_dir()
+            for p in (root / d).glob("*.parquet"))
+    except Exception:
+        # A file renamed away between the listing and the stat is a sync in
+        # progress. No answer, same as an unreadable status.json.
+        return None
+
+
+def _store_moved(current, built):
+    """Did the store's files change since the index was built from them?
+
+    Either side None is no answer, never a change: an unreadable store is waited out,
+    and an index whose build-time fingerprint was never taken has nothing to compare.
+    """
+    return current is not None and built is not None and current != built
+
+
+def _clear_memoized():
+    """Drop every lru_cache on CotIndexer, found rather than listed.
+
+    A list kept by hand goes stale the day a method gains a cache: it did when
+    get_commercial_flow_data (0.15.1) was added without joining it, so the
+    Positioning Index flow strip kept serving the previous week's frames after a
+    rebuild until they fell out of its LRU.
+    """
+    for attr in vars(CotIndexer).values():
+        if hasattr(attr, "cache_clear"):
+            attr.cache_clear()
+
+
 class CotIndexer:
     def __init__(self, real_test_data_dir=None, params_dir=None):
         import cotmetrics.config as config
@@ -133,6 +186,9 @@ class CotIndexer:
         self.params_dir = params_dir if params_dir else config.params_path()
 
         self.last_known_db_time = cotDatabase.latest_update_timestamp()
+        # Taken BEFORE the load, like the week above, so a file that lands during the
+        # load reads as a change on the next poll rather than as already indexed.
+        self._built_fingerprint = _store_fingerprint()
         # Serializes refresh_if_stale across Dash worker threads, so concurrent pollers
         # produce one rebuild rather than several. It does NOT guard readers: they never
         # take it, and never block, because a refresh publishes by rebinding _state.
@@ -1310,16 +1366,24 @@ class CotIndexer:
         request served during those two minutes sees the previous week whole rather
         than a half-updated universe. See _build_state.
         """
-        if _no_new_week(cotDatabase.latest_update_timestamp(),
-                        self.last_known_db_time):
+        if not self._should_rebuild(cotDatabase.latest_update_timestamp(),
+                                    _store_fingerprint()):
             return False
 
         with self._refresh_lock:
             current_db_time = cotDatabase.latest_update_timestamp()
-            if _no_new_week(current_db_time, self.last_known_db_time):
+            # Before the build, like the week: a file landing mid-build then reads as
+            # a change on the next poll and costs one more rebuild, never a stale index.
+            fingerprint = _store_fingerprint()
+            if not self._should_rebuild(current_db_time, fingerprint):
                 return False
 
-            utils.cot_logger.warning(f"New database data detected ({current_db_time}). Rebuilding index.")
+            if _no_new_week(current_db_time, self.last_known_db_time):
+                utils.cot_logger.warning(
+                    f"COT files changed under the same week ({current_db_time}), so the "
+                    f"last build read a partial store. Rebuilding index.")
+            else:
+                utils.cot_logger.warning(f"New database data detected ({current_db_time}). Rebuilding index.")
             new_state = self._build_state()
 
             # Publish. One rebind of one reference, so a reader either sees the whole
@@ -1330,11 +1394,7 @@ class CotIndexer:
             # BEFORE the build (as this used to) would have refilled them from the old
             # state during the two minutes the build was running, so the stale entries
             # came straight back and outlived the swap.
-            self.get_symbols_data.__func__.cache_clear()
-            self.get_asset_class_z_score_heat.__func__.cache_clear()
-            self.get_asset_class_index_heat.__func__.cache_clear()
-            self.get_positioning_table_by_asset_class.__func__.cache_clear()
-            self.get_category_data.__func__.cache_clear()
+            _clear_memoized()
 
             # Adopt the stamp only after a build that actually succeeded. Setting it
             # first (as this used to, to stop the in-place rebuild recursing) meant a
@@ -1342,8 +1402,21 @@ class CotIndexer:
             # poll would retry. Recursion is no longer the risk it guards against: the
             # build runs against a separate object, not self.
             self.last_known_db_time = current_db_time
+            self._built_fingerprint = fingerprint
             utils.cot_logger.info("Updated instruments and recalculated metrics with latest database data.")
             return True
+
+    def _should_rebuild(self, week, fingerprint):
+        """A new week, or the same week with different files under it.
+
+        An unreadable status.json stands down even if the files moved: that is a
+        sync in progress, and the next poll sees it finished.
+        """
+        if week is None:
+            return False
+        if not _no_new_week(week, self.last_known_db_time):
+            return True
+        return _store_moved(fingerprint, getattr(self, "_built_fingerprint", None))
 
     def _build_state(self):
         """Build a complete replacement _IndexState without touching the live one.

@@ -174,3 +174,112 @@ def test_a_stamp_never_read_adopts_the_first_readable_week(spy_indexer, monkeypa
 
     assert ix.refresh_if_stale() is True
     assert len(builds) == 1
+
+
+# --------------------------------------------------------------------------- #
+# The same week, with different files under it
+# --------------------------------------------------------------------------- #
+#
+# 2026-10-04 on the VPS: the index rebuilt for 2026-09-29 and served 25 markets on
+# that week and 17 on the one before, and _no_new_week would have stood down on
+# every poll until the next release. The week cannot say a build was partial; the
+# files can.
+
+PARTIAL = frozenset({("cot_legacy/GC_088691.parquet", 1000),
+                     ("cot_legacy/SI_084691.parquet", 900)})
+COMPLETE = frozenset({("cot_legacy/GC_088691.parquet", 1000),
+                      ("cot_legacy/SI_084691.parquet", 950)})
+
+
+def _fingerprints(monkeypatch, *values):
+    seq = list(values)
+    monkeypatch.setattr(indexer_mod, "_store_fingerprint",
+                        lambda: seq.pop(0) if len(seq) > 1 else seq[0])
+
+
+def test_files_that_change_under_the_same_week_rebuild(spy_indexer, monkeypatch):
+    ix, builds = spy_indexer
+    ix._built_fingerprint = PARTIAL
+    _reads(monkeypatch, "2026-08-04")
+    _fingerprints(monkeypatch, COMPLETE)
+
+    assert ix.refresh_if_stale() is True
+    assert len(builds) == 1
+    assert ix._built_fingerprint == COMPLETE
+    assert ix.last_known_db_time == "2026-08-04"
+
+
+def test_unchanged_files_under_the_same_week_do_not_rebuild(spy_indexer, monkeypatch):
+    """The daily catch-up rewrites every file with the same rows. Same sizes, no build."""
+    ix, builds = spy_indexer
+    ix._built_fingerprint = COMPLETE
+    _reads(monkeypatch, "2026-08-04")
+    _fingerprints(monkeypatch, COMPLETE)
+
+    assert ix.refresh_if_stale() is False
+    assert builds == []
+
+
+def test_moved_files_wait_for_a_readable_week(spy_indexer, monkeypatch):
+    """status.json unreadable is a sync in progress, whatever the files look like."""
+    ix, builds = spy_indexer
+    ix._built_fingerprint = PARTIAL
+    _reads(monkeypatch, None)
+    _fingerprints(monkeypatch, COMPLETE)
+
+    assert ix.refresh_if_stale() is False
+    assert builds == []
+
+
+@pytest.mark.parametrize("current, built", [(None, PARTIAL), (COMPLETE, None)])
+def test_an_unknown_fingerprint_is_not_a_change(spy_indexer, monkeypatch, current, built):
+    ix, builds = spy_indexer
+    ix._built_fingerprint = built
+    _reads(monkeypatch, "2026-08-04")
+    _fingerprints(monkeypatch, current)
+
+    assert ix.refresh_if_stale() is False
+    assert builds == []
+
+
+def test_the_fingerprint_is_sizes_not_mtimes(tmp_path, monkeypatch):
+    """cotdata rewrites every file on every run, so an mtime is not a change."""
+    import os
+
+    import cotdata.config as cfg
+    monkeypatch.setattr(cfg, "store_root", lambda: tmp_path)
+    (tmp_path / "cot_legacy").mkdir()
+    f = tmp_path / "cot_legacy" / "GC_088691.parquet"
+    f.write_bytes(b"x" * 10)
+    before = indexer_mod._store_fingerprint()
+
+    os.utime(f, (1, 1))
+    assert indexer_mod._store_fingerprint() == before
+
+    f.write_bytes(b"x" * 11)
+    assert indexer_mod._store_fingerprint() != before
+
+
+def test_an_unreadable_store_has_no_fingerprint(monkeypatch):
+    import cotdata.config as cfg
+
+    def boom():
+        raise RuntimeError("COTDATA_STORE is not set")
+    monkeypatch.setattr(cfg, "store_root", boom)
+    assert indexer_mod._store_fingerprint() is None
+
+
+def test_a_rebuild_clears_every_memoized_method(spy_indexer, monkeypatch):
+    """Found, not listed: get_commercial_flow_data was missing from the hand list."""
+    ix, _ = spy_indexer
+    cached = {name: attr for name, attr in vars(CotIndexer).items()
+              if hasattr(attr, "cache_clear")}
+    assert "get_commercial_flow_data" in cached
+
+    cleared = []
+    for name, attr in cached.items():
+        monkeypatch.setattr(attr, "cache_clear", lambda name=name: cleared.append(name))
+    _reads(monkeypatch, "2026-08-11")
+
+    ix.refresh_if_stale()
+    assert sorted(cleared) == sorted(cached)
