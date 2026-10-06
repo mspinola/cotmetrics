@@ -25,7 +25,12 @@ from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
 
 import cotmetrics.utils as utils
-from cotmetrics.reports import generate_matrix_html, get_matrix_data
+from cotmetrics.reports import (
+    generate_matrix_html,
+    get_matrix_data,
+    lagging_markets,
+    newest_report_date,
+)
 
 #: Gmail's implicit-TLS endpoint. Module constants rather than literals so a test can
 #: point at a stub without monkeypatching smtplib itself.
@@ -61,15 +66,16 @@ def report_date_for(df):
 
     Read off the frame rather than the clock. The old script stamped
     `datetime.now()`, so a send that ran on Saturday, or a resend of last week, was
-    labelled with the day it was sent. The frame carries the report date because
-    get_matrix_data pins every row to one, which is the same value the heatmap page
-    puts in its own header.
+    labelled with the day it was sent.
 
-    Falls back to today only for an empty frame, where there is no week to name.
+    The NEWEST row's week, not the first row's: rows are not pinned to one week (see
+    reports.newest_report_date), and the first row is just whichever market sorts
+    first. Markets older than this are named in the body, not hidden by the subject.
+
+    Falls back to today only for a frame with no readable date, where there is no
+    week to name.
     """
-    if df.empty or "Date" not in df.columns:
-        return datetime.now().strftime("%Y-%m-%d")
-    return str(df.iloc[0]["Date"])
+    return newest_report_date(df) or datetime.now().strftime("%Y-%m-%d")
 
 
 def build_message(df, report_date, sender, receiver):
@@ -122,6 +128,11 @@ def send_weekly_matrix_email(report_date=None, lookback="Custom", asset_classes=
             "arrives is not.")
 
     report_date = report_date or report_date_for(df)
+    behind = lagging_markets(df, report_date)
+    if behind:
+        utils.get_cot_logger().warning(
+            f"weekly email: {len(behind)} of {len(df)} markets are behind {report_date}: "
+            + ", ".join(f"{a} ({d})" for a, d in behind))
     msg = build_message(df, report_date, sender, receiver)
 
     factory = smtp_factory or (lambda: smtplib.SMTP_SSL(SMTP_HOST, SMTP_PORT))
