@@ -382,11 +382,17 @@ def rolling_willco(col_to_search, lb_weeks):
 # M-07, SWG: "% of Nasdaq stocks above their 5-day MA", TradingView INDEX:NCFD. The
 # guide gives the zones in deliberately approximate terms ("roughly the 35-60 area",
 # "below roughly 20-25"). They are reproduced at the stated edges and NOT tightened
-# into a partition: 25-35 and 60-80 are genuinely unnamed in the source, and naming
+# into a partition: 20-35 and 60-80 are genuinely unnamed in the source, and naming
 # them would invent a position at exactly the boundaries where the call is hardest.
+#
+# The fear edge is 20 since 2026-11-18. The guide's "roughly 20-25" was first read at
+# its upper end (25). Caruso's own member dashboard ("Market Conditions", 2026-11-17)
+# draws the FEAR extreme at 20, and the author's own chart outranks a reading of his
+# approximate prose, so the edge follows it. Readings from 20 up to 25 were fear and
+# are now the unnamed gap; a print rising out of fear is "recovery" from 20, not 25.
 FOMO_EXHAUSTION_MIN = 80.0        # "A. FOMO > 80: buying exhaustion"
 FOMO_NEUTRAL = (35.0, 60.0)       # "B. 35-60 neutral: constructive backdrop"
-FOMO_FEAR_MAX = 25.0              # "C. Fear < 25: broad pessimism"
+FOMO_FEAR_MAX = 20.0              # "C. Fear": the dashboard's FEAR extreme, under 20
 FOMO_ZONES = ("exhaustion", "neutral", "fear", "recovery")
 
 
@@ -413,7 +419,7 @@ def fomo_zone(value, previous=None):
     of fear is reported as the unnamed gap it sits in, never guessed at.
 
     Returns ``"exhaustion"``, ``"neutral"``, ``"fear"``, ``"recovery"``, or ``None``
-    for a reading the source does not name (the 25-35 and 60-80 gaps) or a missing
+    for a reading the source does not name (the 20-35 and 60-80 gaps) or a missing
     reading. Order of tests matters and follows the source: a reading still below the
     fear edge is fear even when rising, so recovery starts on the first close at or
     above it.

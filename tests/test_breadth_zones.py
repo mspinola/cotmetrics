@@ -20,9 +20,10 @@ from cotmetrics import indicators as ind
     (60.0, "neutral"),
     (48.05, "neutral"),        # the 2026-07-29 EDGE-report reading
     (35.0, "neutral"),
-    (34.99, None),             # 25-35 is unnamed in the source
-    (25.0, None),
-    (24.99, "fear"),
+    (34.99, None),             # 20-35 is unnamed in the source
+    (24.99, None),             # fear until 2026-11-18, when the edge moved from 25
+    (20.0, None),
+    (19.99, "fear"),           # the dashboard's FEAR extreme: under 20
     (12.0, "fear"),
     (0.0, "fear"),
 ])
@@ -34,7 +35,8 @@ def test_fomo_recovery_is_a_direction_not_a_level():
     assert ind.fomo_zone(30.0) is None                 # no prior: unknowable
     assert ind.fomo_zone(30.0, previous=18.0) == "recovery"   # rising out of fear
     assert ind.fomo_zone(30.0, previous=34.0) is None         # falling toward fear
-    assert ind.fomo_zone(22.0, previous=18.0) == "fear"       # rising but still in fear
+    assert ind.fomo_zone(19.0, previous=18.0) == "fear"       # rising but still in fear
+    assert ind.fomo_zone(22.0, previous=18.0) == "recovery"   # the first close back above 20
     assert ind.fomo_zone(85.0, previous=18.0) == "exhaustion"  # level wins at the top
     assert ind.fomo_zone(50.0, previous=18.0) == "recovery"   # recovery, not neutral, off a fear print
     assert ind.fomo_zone(50.0, previous=40.0) == "neutral"    # ordinary neutral drift
@@ -116,4 +118,4 @@ def test_the_zone_names_are_the_four_the_guide_names():
     assert ind.FOMO_ZONES == ("exhaustion", "neutral", "fear", "recovery")
     assert ind.FOMO_EXHAUSTION_MIN == 80.0
     assert ind.FOMO_NEUTRAL == (35.0, 60.0)
-    assert ind.FOMO_FEAR_MAX == 25.0
+    assert ind.FOMO_FEAR_MAX == 20.0
