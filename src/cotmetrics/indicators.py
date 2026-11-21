@@ -487,31 +487,31 @@ def net_highs_regime(net, days=NET_HIGHS_CONFIRM_DAYS):
     return out
 
 
-# ── Credit appetite: junk bonds against Treasuries ─────────────────────────────────────
+# ── Credit divergence: junk bonds against Treasuries ───────────────────────────────────
 #
 # The Python side of npf/scripts/pine/credit_xray.pine ("TLT / JNK Credit X-Ray [BMT]"),
-# function for function, so a page can draw what that pane draws. The read is Caruso's
-# (agi M-09a): Treasuries (TLT) and junk bonds (JNK) both price off rates, so a day TLT
-# rises and JNK falls is a day the market marked credit risk up, and the reverse is
-# money growing comfortable with it.
+# function for function. The read is Caruso's (agi M-09a): Treasuries (TLT) and junk
+# bonds (JNK) both price off rates, so a day TLT rises and JNK falls is a day the market
+# marked credit risk up.
 #
 # What it is worth, measured in the private agi repo and restated here so the numbers
-# travel with the code: a reading under 20 was NOT followed by a worse month in any era
-# tested (agi docs/96-98), and after 111 declustered risk-off days (2008-12 to 2026-09)
-# the chance of a 5% Nasdaq pullback in the next 20 sessions rose from 22.2% to 29.7%
-# with a median 20-day return still +2.3% (docs/93). The zones describe credit NOW. A
-# risk flag, not a signal; nothing here has been through crucible.
+# travel with the code: after 111 declustered risk-off days (2008-12 to 2026-09) the
+# chance of a 5% Nasdaq pullback in the next 20 sessions rose from 22.2% to 29.7%, with
+# a median 20-day return still +2.3% (docs/93). A risk flag, not a signal; nothing here
+# has been through crucible.
+#
+# Removed 2026-11-20, with the pane's gauge and cot-analyzer's card: the 0-100 "credit
+# appetite" (the junk/Treasury ratio's distance from its 20-day, ranked over a year),
+# ``credit_ratio_deviation`` and ``credit_zone``. A reading under 20 was NOT followed by
+# a worse month in any era tested (agi docs/96-98), a genuine null, and nothing else
+# called them. Git history has them if a test ever needs the arithmetic back.
 #
 # Inputs are DIVIDEND-ADJUSTED closes (marketdata's ``total`` tier). Both funds pay
 # monthly, and a raw close drops by the payout on the ex-date, which reads exactly like
 # a credit scare. Nothing in a price series says which tier it is, so the docstrings
 # carry the requirement.
-CREDIT_AVERAGE_DAYS = 20          # the ratio's own average, and JNK's
 CREDIT_RANK_DAYS = 252            # "unusual" is against about a year of sessions
-CREDIT_STRESS_MAX = 20.0          # appetite under this: credit stress
-CREDIT_COMFORT_MIN = 80.0         # appetite over this: credit comfort
 CREDIT_DIVERGENCE_PCT = 95.0      # a divergence day's gap is in this tail of the lookback
-CREDIT_ZONES = ("stress", "neutral", "comfort")
 
 
 def percent_rank(series, length):
@@ -535,40 +535,6 @@ def _credit_pair(junk, treasuries):
     both = pd.concat([pd.Series(junk, dtype=float), pd.Series(treasuries, dtype=float)],
                      axis=1, join="inner", keys=["junk", "treasuries"]).dropna().sort_index()
     return both["junk"], both["treasuries"]
-
-
-def credit_ratio_deviation(junk, treasuries, average_days=CREDIT_AVERAGE_DAYS):
-    """The junk/Treasury ratio's distance from its own ``average_days`` simple average,
-    in percent. Below zero, money has been preferring Treasuries for weeks: the
-    persistent version of the one-day divergence. Dividend-adjusted closes.
-    """
-    j, t = _credit_pair(junk, treasuries)
-    ratio = j / t
-    return (ratio / ratio.rolling(average_days).mean() - 1) * 100
-
-
-def credit_appetite(junk, treasuries, average_days=CREDIT_AVERAGE_DAYS,
-                    rank_days=CREDIT_RANK_DAYS):
-    """Credit appetite, 0 to 100: ``credit_ratio_deviation`` ranked against its own
-    previous ``rank_days`` sessions (``percent_rank``). The pane's Glance reading. Needs
-    ``average_days + rank_days`` sessions before the first value. Dividend-adjusted
-    closes.
-    """
-    return percent_rank(credit_ratio_deviation(junk, treasuries, average_days), rank_days)
-
-
-def credit_zone(value):
-    """``"stress"`` under 20, ``"comfort"`` over 80, ``"neutral"`` between (edges
-    included, as the pane's strict comparisons leave them), ``None`` for a missing
-    reading."""
-    if value is None or value != value:
-        return None
-    _check_percent([value], "credit appetite")
-    if value < CREDIT_STRESS_MAX:
-        return "stress"
-    if value > CREDIT_COMFORT_MIN:
-        return "comfort"
-    return "neutral"
 
 
 def credit_gap(junk, treasuries):
