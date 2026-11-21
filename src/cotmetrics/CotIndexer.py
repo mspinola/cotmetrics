@@ -41,12 +41,14 @@ def resolve_role(asset: dict, asset_class: str, role_config: dict) -> str:
 
 class Instrument:
     def __init__(self, asset_class_, name_, symbol_, code_, custom_lookback_,
-                 role_="deploy"):
+                 role_="deploy", cmr_lookback_=None):
         self.asset_class = asset_class_
         self.name = name_
         self.symbol = symbol_
         self.code = code_
         self.custom_lookback = custom_lookback_
+        # CMR's published lookback (CmrLookbackWeeks); falls back to the custom one.
+        self.cmr_lookback = cmr_lookback_ if cmr_lookback_ is not None else custom_lookback_
         self.role = role_
         self.df = pd.DataFrame()
 
@@ -259,7 +261,8 @@ class CotIndexer:
                             self.instruments[code] = Instrument(
                                 asset_class, asset["Name"], asset["Symbol"], code,
                                 asset["CustomLookbackWeeks"],
-                                resolve_role(asset, asset_class, self.role_config))
+                                resolve_role(asset, asset_class, self.role_config),
+                                asset.get("CmrLookbackWeeks"))
                             self.supported_instruments.add(code)
                             self.asset_class_map[asset_class].add(
                                 asset["Name"])
@@ -467,6 +470,11 @@ class CotIndexer:
                 # KeyError at load rather than degrade.
                 # Both bases: the normalized twin landed later, so a cache built in
                 # between carries the raw family and not the normalized one.
+                # Force a rebuild of caches predating the CMR index family.
+                if const.COMM_CMR_IDX not in cached_df.columns:
+                    utils.cot_logger.warning(f"try_load_from_cache: missing CMR index in -> {cache_path}")
+                    return False
+
                 if (const.COMM_CUSTOM_WOW not in cached_df.columns
                         or const.COMM_CUSTOM_WOW_NORM not in cached_df.columns):
                     utils.cot_logger.warning(f"try_load_from_cache: missing WoW metrics in -> {cache_path}")
@@ -639,6 +647,55 @@ class CotIndexer:
         merged = base.merge(lev, on=const.REPORT_DATE_XLS, how="left")
         merged.index = range(len(merged))
         inst.df = merged
+
+    @staticmethod
+    def attach_cmr_indexes(instrument, df, read_cot=None):
+        """The CMR index family at instrument.cmr_lookback (see constants.LB_CMR).
+
+        Plain markets: the index of the frame's own nets. Equity index futures (the
+        symbols in MICRO_LISTINGS): CMR columns from the E-mini alone, plus Micro and
+        Combined twins at the same lookback. Each listing is indexed over ITS OWN
+        history first and only then aligned to the frame's report dates, so a week one
+        listing did not report reads NaN rather than shortening another's window.
+        """
+        lb = instrument.cmr_lookback
+        legs = ((const.COMM, const.COMM_NET, 'Comm'),
+                (const.LARGE, const.LARGE_NET, 'NonComm'),
+                (const.SMALL, const.SMALL_NET, 'NonRept'))
+        micro_code = const.MICRO_LISTINGS.get(instrument.symbol)
+        if micro_code is None:
+            for leg, net, _ in legs:
+                df[leg + const.LB_CMR + const.IDX] = metrics.rolling_cot_index(df[net], lb)
+            return df
+
+        if read_cot is None:
+            import cotdata
+            read_cot = cotdata.get_cot
+        dates = pd.to_datetime(df[const.REPORT_DATE_XLS])
+        if getattr(dates.dt, 'tz', None) is not None:
+            dates = dates.dt.tz_localize(None)
+
+        def listing(name, net_suffix, idx_suffix):
+            raw = read_cot(instrument.symbol, listing=name).sort_index()
+            raw = raw[~raw.index.duplicated(keep='last')]
+            when = pd.DatetimeIndex(raw.index)
+            if when.tz is not None:
+                when = when.tz_localize(None)
+            for leg, _, col in legs:
+                net = (raw[f'{col}_Positions_Long_All']
+                       - raw[f'{col}_Positions_Short_All']).astype(float)
+                net.index = when
+                idx = pd.Series(metrics.rolling_cot_index(net.reset_index(drop=True), lb).to_numpy(),
+                                index=when)
+                df[leg + net_suffix] = net.reindex(dates).to_numpy()
+                df[leg + const.LB_CMR + idx_suffix + const.IDX] = idx.reindex(dates).to_numpy()
+
+        listing('primary', const.EMINI_NET, '')
+        listing(micro_code, const.MICRO_NET, const.CMR_MICRO)
+        for leg, net, _ in legs:
+            df[leg + const.LB_CMR + const.CMR_COMBINED + const.IDX] = \
+                metrics.rolling_cot_index(df[net], lb)
+        return df
 
     @staticmethod
     def process_lookback(lookback, symbol, df):
@@ -1020,6 +1077,7 @@ class CotIndexer:
             df = CotIndexer.process_lookback(["Custom", self.instruments[instrument].custom_lookback], self.instruments[instrument].symbol, df)
             for lookback in self.lookbacks:
                 df = CotIndexer.process_lookback(lookback, self.instruments[instrument].symbol, df)
+            df = CotIndexer.attach_cmr_indexes(inst_obj, df)
 
             # Return a defragmented dataframe
             self.instruments[instrument].df = df.copy()
