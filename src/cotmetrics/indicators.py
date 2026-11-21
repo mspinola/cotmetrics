@@ -487,87 +487,13 @@ def net_highs_regime(net, days=NET_HIGHS_CONFIRM_DAYS):
     return out
 
 
-# ── Credit divergence: junk bonds against Treasuries ───────────────────────────────────
+# ── Credit (removed 2026-11-20) ────────────────────────────────────────────────────────
 #
-# The Python side of npf/scripts/pine/credit_xray.pine ("TLT / JNK Credit X-Ray [BMT]"),
-# function for function. The read is Caruso's (agi M-09a): Treasuries (TLT) and junk
-# bonds (JNK) both price off rates, so a day TLT rises and JNK falls is a day the market
-# marked credit risk up.
-#
-# What it is worth, measured in the private agi repo and restated here so the numbers
-# travel with the code: after 111 declustered risk-off days (2008-12 to 2026-09) the
-# chance of a 5% Nasdaq pullback in the next 20 sessions rose from 22.2% to 29.7%, with
-# a median 20-day return still +2.3% (docs/93). A risk flag, not a signal; nothing here
-# has been through crucible.
-#
-# Removed 2026-11-20, with the pane's gauge and cot-analyzer's card: the 0-100 "credit
-# appetite" (the junk/Treasury ratio's distance from its 20-day, ranked over a year),
-# ``credit_ratio_deviation`` and ``credit_zone``. A reading under 20 was NOT followed by
-# a worse month in any era tested (agi docs/96-98), a genuine null, and nothing else
-# called them. Git history has them if a test ever needs the arithmetic back.
-#
-# Inputs are DIVIDEND-ADJUSTED closes (marketdata's ``total`` tier). Both funds pay
-# monthly, and a raw close drops by the payout on the ex-date, which reads exactly like
-# a credit scare. Nothing in a price series says which tier it is, so the docstrings
-# carry the requirement.
-CREDIT_RANK_DAYS = 252            # "unusual" is against about a year of sessions
-CREDIT_DIVERGENCE_PCT = 95.0      # a divergence day's gap is in this tail of the lookback
-
-
-def percent_rank(series, length):
-    """Pine's ``ta.percentrank``: the percent of the PREVIOUS ``length`` values that are
-    less than or equal to the current one, 0 to 100. NaN until ``length`` previous
-    values exist, and wherever the window holds a NaN. A value is never ranked against
-    itself, so a new extreme reads 100 or 0 rather than something just short of it.
-    """
-    s = pd.Series(series, dtype=float)
-
-    def rank(window):
-        if np.isnan(window).any():
-            return np.nan
-        return 100.0 * np.count_nonzero(window[:-1] <= window[-1]) / length
-
-    return s.rolling(length + 1, min_periods=length + 1).apply(rank, raw=True)
-
-
-def _credit_pair(junk, treasuries):
-    """The two closes on their shared sessions, in session order."""
-    both = pd.concat([pd.Series(junk, dtype=float), pd.Series(treasuries, dtype=float)],
-                     axis=1, join="inner", keys=["junk", "treasuries"]).dropna().sort_index()
-    return both["junk"], both["treasuries"]
-
-
-def credit_gap(junk, treasuries):
-    """The daily credit gap in points: Treasuries' percent change minus junk's. Above
-    zero, junk did worse than Treasuries on the day. Dividend-adjusted closes."""
-    j, t = _credit_pair(junk, treasuries)
-    return (t.pct_change() - j.pct_change()) * 100
-
-
-def credit_divergence(junk, treasuries, rank_days=CREDIT_RANK_DAYS,
-                      percentile=CREDIT_DIVERGENCE_PCT):
-    """Divergence days: ``"risk_off"`` where Treasuries rose, junk fell and the gap is
-    at or above the ``percentile`` of the PREVIOUS ``rank_days`` gaps; ``"risk_on"``
-    for the mirror (Treasuries down, junk up, gap at or below the opposite tail);
-    ``None`` otherwise. Object Series on the shared sessions.
-
-    The thresholds come from the previous sessions only, so a day is never ranked
-    against itself. They are Pine's ``ta.percentile_linear_interpolation``, which is
-    the HAZEN rule (rank ``p/100 * n + 0.5``), not numpy's default ``linear``: measured
-    against TradingView on 2026-11-15, Hazen reproduced the pane's 95th-percentile
-    threshold to five decimals (0.83171 against 0.83170) where ``linear`` gave 0.78684,
-    a gap wide enough to flag a day the pane does not. The risk-on mirror is untested.
-    """
-    j, t = _credit_pair(junk, treasuries)
-    rj, rt = j.pct_change(), t.pct_change()
-    gap = (rt - rj) * 100
-    previous = gap.shift(1).rolling(rank_days, min_periods=rank_days)
-
-    def tail(pct):
-        return previous.apply(lambda w: np.percentile(w, pct, method="hazen"), raw=True)
-
-    high, low = tail(percentile), tail(100.0 - percentile)
-    out = pd.Series([None] * len(gap), index=gap.index, dtype=object)
-    out[((rt > 0) & (rj < 0) & (gap >= high)).values] = "risk_off"
-    out[((rt < 0) & (rj > 0) & (gap <= low)).values] = "risk_on"
-    return out
+# The Python side of npf's credit_xray.pine lived here from 0.16.0: the 0-100 credit
+# appetite gauge (removed in 0.17.0, a genuine null in agi docs/96-98), then
+# ``credit_gap``, ``credit_divergence`` and Pine's ``percent_rank`` (removed in 0.18.0,
+# with no caller left once cot-analyzer dropped its card). The Pine pane is the live
+# implementation. One finding worth keeping if this comes back: TradingView's
+# ``ta.percentile_linear_interpolation`` is numpy's HAZEN rule, not its default
+# ``linear`` (measured 2026-11-15, threshold 0.83171 against TradingView's 0.83170, where
+# ``linear`` gave 0.78684). The code and its tests are in cotmetrics #58 and #61.
