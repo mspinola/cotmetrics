@@ -201,3 +201,53 @@ def test_the_default_lookback_matches_the_site(monkeypatch):
     send_weekly_matrix_email(env=ENV, smtp_factory=StubSMTP)
 
     assert seen["lookback"] == "Custom"
+
+
+VERDICT_MATRIX = pd.DataFrame([
+    {"Date": "2026-08-11", "Asset Class": "Currencies", "Asset": "Canadian Dollar",
+     "Comm Index": 100, "Lrg Index": 0, "Sml Index": 0,
+     "Comm Index Norm": 97, "Sml Index Norm": 3,
+     "Setup_CLS": "BULL", "Setup_NPF": "BULL", "Setup_NPF_CLS": "BULL"},
+])
+
+
+def _with_setup_cols(df):
+    from cotmetrics import constants as const
+    return df.rename(columns={"Setup_CLS": const.SETUP_CLS_COL,
+                              "Setup_NPF": const.SETUP_NPF_COL,
+                              "Setup_NPF_CLS": const.SETUP_NPF_CLS_COL}).assign(
+        **{const.SETUP_CLS_COL: const.SETUP_BULL, const.SETUP_NPF_COL: const.SETUP_BULL,
+           const.SETUP_NPF_CLS_COL: const.SETUP_BULL})
+
+
+def test_the_default_body_carries_both_model_blocks():
+    from cotmetrics import models
+    html = generate_matrix_html(_with_setup_cols(VERDICT_MATRIX), report_date="2026-08-11")
+    assert f"Positioning · {models.RAW_PF.title}" in html
+    assert f"Positioning · {models.NPF.title}" in html
+    assert ">97<" in html
+
+
+def test_without_verdicts_the_body_carries_no_model():
+    """For a surface that must not carry the models (cot-analyzer's public weekly
+    pages): no NPF block, no model in a header, and the normalized values are gone."""
+    from cotmetrics import models
+    html = generate_matrix_html(_with_setup_cols(VERDICT_MATRIX), report_date="2026-08-11",
+                                verdicts=False)
+    assert models.NPF.title not in html and models.RAW_PF.title not in html
+    assert ">Positioning<" in html
+    assert ">97<" not in html
+
+
+def test_without_verdicts_no_cell_takes_a_setup_colour():
+    """A bull setup row and the same row with no setup must style identically."""
+    from cotmetrics import constants as const
+    with_setup = _with_setup_cols(VERDICT_MATRIX)
+    no_setup = with_setup.assign(**{const.SETUP_CLS_COL: const.SETUP_NONE,
+                                    const.SETUP_NPF_COL: const.SETUP_NONE,
+                                    const.SETUP_NPF_CLS_COL: const.SETUP_NONE})
+    strip = lambda h: h.split("&bull; generated")[0]  # noqa: E731 -- the footer has a clock
+    assert strip(generate_matrix_html(with_setup, "2026-08-11", verdicts=False)) == \
+        strip(generate_matrix_html(no_setup, "2026-08-11", verdicts=False))
+    assert strip(generate_matrix_html(with_setup, "2026-08-11")) != \
+        strip(generate_matrix_html(no_setup, "2026-08-11"))
