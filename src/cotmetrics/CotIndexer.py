@@ -1246,27 +1246,14 @@ class CotIndexer:
         summary_df[const.SMALL_NET] = df[const.SMALL_NET]
         summary_df[const.CLOSING_PRICE] = df[const.CLOSING_PRICE]
 
-        # Grab index values
-        index_cols = [col for col in df.columns if const.IDX in col]
-        for col in index_cols:
-            summary_df[col] = df[col]
-
-        # Grab z-score values
-        index_cols = [col for col in df.columns if const.ZSCORE in col]
-        for col in index_cols:
-            summary_df[col] = df[col]
-
-        # Grab Spearman values
-        index_cols = [col for col in df.columns if const.SPEARMAN in col]
-        for col in index_cols:
-            summary_df[col] = df[col]
-
-        # Grab WILLCO values
-        index_cols = [col for col in df.columns if const.WILLCO in col]
-        for col in index_cols:
-            summary_df[col] = df[col]
-
-        return summary_df
+        # Index, z-score, Spearman and WILLCO values, in that order, joined in one
+        # concat. Inserting them one column at a time fragments the frame past pandas'
+        # PerformanceWarning threshold once 0.19.0 added the deprecated " Custom" copy of
+        # the NPF family (hundreds of warnings per daily run).
+        metric_cols = []
+        for marker in (const.IDX, const.ZSCORE, const.SPEARMAN, const.WILLCO):
+            metric_cols += [c for c in df.columns if marker in c and c not in metric_cols]
+        return pd.concat([summary_df, df[metric_cols]], axis=1)
 
     def collect_symbol_detailed_results(self, instrument):
         # Construct detailed dataframe with all columns
