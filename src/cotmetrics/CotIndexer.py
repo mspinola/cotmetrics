@@ -2004,6 +2004,7 @@ class CotIndexer:
         if isinstance(asset_classes, list):
             asset_classes = tuple(asset_classes)
 
+        const.check_lookback(lookback)
         lookback = " " + lookback
         idx_col_header_name = lookback + const.IDX
         COMM_IDX = const.COMM + idx_col_header_name
