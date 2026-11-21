@@ -1,26 +1,41 @@
-"""The CMR index family: CmrLookbackWeeks, and the E-mini / Micro / Combined equity twins."""
+"""The CMR lookback family, and the E-mini / combined contract frames of equity markets."""
 import numpy as np
 import pandas as pd
 import pytest
 
 import cotmetrics as metrics
 import cotmetrics.constants as const
+import cotmetrics.contracts as contracts
 from cotmetrics.CotIndexer import CotIndexer, Instrument
 
-DATES = pd.date_range("2024-01-02", periods=12, freq="7D")
+DATES = pd.date_range("2024-01-02", periods=40, freq="7D")
 
 
-def _frame(comm, lrg, sml, dates=DATES):
-    return pd.DataFrame({const.REPORT_DATE_XLS: dates, const.COMM_NET: comm,
-                         const.LARGE_NET: lrg, const.SMALL_NET: sml})
-
-
-def _raw(comm, lrg, sml, dates):
+def _raw(comm, lrg, sml, dates, oi=1000.0):
     z = np.zeros(len(dates))
-    return pd.DataFrame({"Comm_Positions_Long_All": comm, "Comm_Positions_Short_All": z,
-                         "NonComm_Positions_Long_All": lrg, "NonComm_Positions_Short_All": z,
-                         "NonRept_Positions_Long_All": sml, "NonRept_Positions_Short_All": z},
-                        index=pd.DatetimeIndex(dates))
+    return pd.DataFrame({const.COMM_LONG_POS_XLS: comm, const.COMM_SHORT_POS_XLS: z,
+                         const.LARGE_LONG_POS_XLS: lrg, const.LARGE_SHORT_POS_XLS: z,
+                         const.SMALL_LONG_POS_XLS: sml, const.SMALL_SHORT_POS_XLS: z,
+                         const.OPEN_INTEREST_XLS: np.full(len(dates), oi)},
+                        index=pd.DatetimeIndex(dates, name=const.REPORT_DATE_XLS))
+
+
+def _indexer():
+    ix = object.__new__(CotIndexer)
+    ix.lookbacks = [["26", 26]]
+    return ix
+
+
+def _combined_frame(ix, inst, raw):
+    df = raw.reset_index()
+    df[const.CONTRACT_CODE_XLS] = inst.code
+    df[const.CLOSING_PRICE] = np.linspace(100, 140, len(df))
+    return ix._derive_metrics(inst, df)
+
+
+def _walks(n, seed):
+    rng = np.random.default_rng(seed)
+    return [rng.normal(size=n).cumsum() * 10 + 500 for _ in range(3)]
 
 
 def test_cmr_lookback_falls_back_to_custom():
@@ -28,46 +43,84 @@ def test_cmr_lookback_falls_back_to_custom():
     assert Instrument("Metals", "Gold", "GC", "088691", 26, "deploy", 24).cmr_lookback == 24
 
 
-def test_plain_market_cmr_index_uses_the_cmr_lookback():
-    rng = np.random.default_rng(0)
-    df = _frame(*(rng.normal(size=len(DATES)).cumsum() for _ in range(3)))
+def test_cmr_family_is_a_full_lookback_at_the_cmr_weeks():
     inst = Instrument("Metals", "Gold", "GC", "088691", 8, "deploy", 4)
-    out = CotIndexer.attach_cmr_indexes(inst, df.copy())
-    pd.testing.assert_series_equal(out[const.COMM_CMR_IDX],
+    df = _combined_frame(_indexer(), inst, _raw(*_walks(len(DATES), 0), DATES))
+    pd.testing.assert_series_equal(df[const.COMM_CMR_IDX],
                                    metrics.rolling_cot_index(df[const.COMM_NET], 4),
                                    check_names=False)
-    assert const.COMM_CMR_MICRO_IDX not in out.columns
+    assert const.COMM + const.LB_CMR + const.ZSCORE in df.columns
 
 
-def test_equity_twins_index_each_listing_over_its_own_history():
-    lb = 3
-    rng = np.random.default_rng(1)
-    mini = [rng.normal(size=len(DATES)).cumsum() for _ in range(3)]
-    micro_dates = DATES[5:]                       # the micro lists later
-    micro = [rng.normal(size=len(micro_dates)).cumsum() for _ in range(3)]
-    combined = [m + 7 for m in mini]
-    reads = {"primary": _raw(*mini, DATES), "13874U": _raw(*micro, micro_dates)}
+def test_emini_frame_recomputes_on_the_primary_listing_alone():
+    ix = _indexer()
+    inst = Instrument("Equities", "S&P 500", "ES", "13874A", 6, "deploy", 4)
+    mini_dates = DATES[10:]                      # the summed series reaches back further
+    mini = _walks(len(mini_dates), 1)
+    inst.df = _combined_frame(ix, inst, _raw(*_walks(len(DATES), 2), DATES, oi=5000.0))
 
-    def read_cot(sym, listing):
-        assert sym == "ES"
-        return reads[listing]
+    def read_cot(sym, report="legacy", listing=None):
+        assert (sym, report, listing) == ("ES", "legacy", "primary")
+        return _raw(*mini, mini_dates)
 
-    inst = Instrument("Equities", "S&P 500", "ES", "13874A", 28, "deploy", lb)
-    out = CotIndexer.attach_cmr_indexes(inst, _frame(*combined), read_cot=read_cot)
-
-    want_mini = metrics.rolling_cot_index(pd.Series(mini[0]), lb).to_numpy()
-    np.testing.assert_array_equal(out[const.COMM_CMR_IDX].to_numpy(), want_mini)
-    want_micro = metrics.rolling_cot_index(pd.Series(micro[2]), lb).to_numpy()
-    got_micro = out[const.SMALL_CMR_MICRO_IDX].to_numpy()
-    assert np.isnan(got_micro[:5]).all()          # before the micro listed
-    np.testing.assert_array_equal(got_micro[5:], want_micro)
-    np.testing.assert_array_equal(out[const.LARGE_CMR_COMBINED_IDX].to_numpy(),
-                                  metrics.rolling_cot_index(pd.Series(combined[1]), lb).to_numpy())
-    np.testing.assert_array_equal(out[const.COMM + const.EMINI_NET].to_numpy(), mini[0])
+    out = ix._emini_frame(inst, read_cot=read_cot)
+    assert list(pd.to_datetime(out[const.REPORT_DATE_XLS])) == list(mini_dates)
+    np.testing.assert_array_equal(out[const.COMM_NET].to_numpy(), mini[0])
+    np.testing.assert_array_equal(out[const.COMM_CMR_IDX].to_numpy(),
+                                  metrics.rolling_cot_index(pd.Series(mini[0]), 4).to_numpy())
+    np.testing.assert_array_equal(out[const.OPEN_INTEREST_XLS].to_numpy(), 1000.0)
+    # prices carry over from the combined frame, row for row
+    np.testing.assert_array_equal(out[const.CLOSING_PRICE].to_numpy(),
+                                  inst.df[const.CLOSING_PRICE].to_numpy()[10:])
+    assert (out[const.CONTRACT_CODE_XLS] == "13874A").all()
 
 
-def test_micro_listings_are_registry_sum_codes():
-    cotdata = pytest.importorskip("cotdata")
-    for sym, code in const.MICRO_LISTINGS.items():
-        listed = {c for c, *_ in cotdata.symbol(sym).sum_codes}
-        assert code in listed, f"{sym}: {code} not in the registry's sum_codes {listed}"
+def test_frame_for_follows_the_current_contracts():
+    inst = Instrument("Equities", "S&P 500", "ES", "13874A", 6)
+    inst.df, inst.emini_df = pd.DataFrame({"x": [1]}), pd.DataFrame({"x": [2]})
+    plain = Instrument("Metals", "Gold", "GC", "088691", 26)
+    plain.df = pd.DataFrame({"x": [3]})
+    assert CotIndexer.frame_for(inst) is inst.df            # package default: combined
+    with contracts.use_contracts(contracts.EMINI):
+        assert CotIndexer.frame_for(inst) is inst.emini_df
+        assert CotIndexer.frame_for(plain) is plain.df      # one frame, choice is a no-op
+        assert CotIndexer.listing_for(inst) == "primary"
+        assert CotIndexer.listing_for(plain) is None
+    assert CotIndexer.frame_for(inst, contracts.EMINI) is inst.emini_df
+
+
+def test_contracts_cached_keys_on_the_resolved_choice():
+    calls = []
+
+    class Thing:
+        @contracts.contracts_cached(8)
+        def read(self, x):
+            calls.append((x, contracts.current_contracts()))
+            return contracts.current_contracts()
+
+    t = Thing()
+    assert t.read(1) == contracts.COMBINED
+    with contracts.use_contracts(contracts.EMINI):
+        assert t.read(1) == contracts.EMINI
+    assert t.read(1, contracts=contracts.EMINI) == contracts.EMINI
+    assert t.read(1) == contracts.COMBINED
+    assert calls == [(1, contracts.COMBINED), (1, contracts.EMINI)]
+    with pytest.raises(ValueError):
+        t.read(1, contracts="micro")
+
+
+def test_request_contracts_ignores_a_bad_value():
+    contracts.set_request_contracts("bogus")
+    assert contracts.current_contracts() == contracts.default_contracts()
+    contracts.set_request_contracts(contracts.EMINI)
+    assert contracts.current_contracts() == contracts.EMINI
+    contracts.set_request_contracts(None)
+    assert contracts.current_contracts() == contracts.default_contracts()
+
+
+def test_listing_frames_are_the_summed_equity_markets():
+    pytest.importorskip("cotdata")
+    es = Instrument("Equities", "S&P 500", "ES", "13874A", 26)
+    gc = Instrument("Metals", "Gold", "GC", "088691", 26)
+    assert CotIndexer.has_listing_frames(es)
+    assert not CotIndexer.has_listing_frames(gc)

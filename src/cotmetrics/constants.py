@@ -46,7 +46,7 @@ OPTIONS_DIR = os.environ.get(
 # (e.g. the Spearman fallback going 0.0 -> NaN). Bump this whenever a metrics
 # change alters previously-cached values, and the parquet caches rebuild
 # themselves instead of needing a manual `rm ~/.cache/cotmetrics/*.parquet`.
-METRICS_CACHE_VERSION = 2  # 2: CMR index family + equity listing twins
+METRICS_CACHE_VERSION = 3  # 2: CMR index family. 3: full CMR lookback family, one basis per frame
 
 # Columns of COT data to consume
 MARKET_NAME_XLS = "Market_and_Exchange_Names"
@@ -241,31 +241,17 @@ SMALL_52_NORM_CORR = SMALL_52_CORR + NORMALIZED
 COMM_CUSTOM_IDX = COMM + LB_CUSTOM + IDX
 LARGE_CUSTOM_IDX = LARGE + LB_CUSTOM + IDX
 SMALL_CUSTOM_IDX = SMALL + LB_CUSTOM + IDX
-# CMR family: the raw COT index at each instrument's CmrLookbackWeeks, the lookbacks
-# that reproduce CMR's published pre-algo index (params.yaml says how they were fitted).
-# Display and comparison only: the validated books read the Custom family. For the
-# equity index futures, CMR reads the E-mini ALONE, so the plain CMR columns are the
-# E-mini there; the Micro and Combined (mini + full-size + micro, the registry's whole
-# market) twins sit beside it at the same lookback, so the three are comparable.
+# CMR family: the full lookback family (index, z-score, WILLCO, momentum...) at each
+# instrument's CmrLookbackWeeks, the lookbacks that reproduce CMR's published pre-algo
+# index (params.yaml says how they were fitted). Display and comparison only: the
+# validated books read the Custom family. A frame is ONE contract basis throughout, so
+# for an equity index future these columns are the E-mini in the E-mini frame and the
+# combined market in the combined one (see cotmetrics.contracts). CMR's own numbers are
+# the E-mini frame's.
 LB_CMR = " CMR"
 COMM_CMR_IDX = COMM + LB_CMR + IDX
 LARGE_CMR_IDX = LARGE + LB_CMR + IDX
 SMALL_CMR_IDX = SMALL + LB_CMR + IDX
-CMR_MICRO = " Micro"
-CMR_COMBINED = " Combined"
-COMM_CMR_MICRO_IDX = COMM + LB_CMR + CMR_MICRO + IDX
-LARGE_CMR_MICRO_IDX = LARGE + LB_CMR + CMR_MICRO + IDX
-SMALL_CMR_MICRO_IDX = SMALL + LB_CMR + CMR_MICRO + IDX
-COMM_CMR_COMBINED_IDX = COMM + LB_CMR + CMR_COMBINED + IDX
-LARGE_CMR_COMBINED_IDX = LARGE + LB_CMR + CMR_COMBINED + IDX
-SMALL_CMR_COMBINED_IDX = SMALL + LB_CMR + CMR_COMBINED + IDX
-# Per-listing net positions behind those indexes, each in its OWN contract units
-# (a micro is a tenth of a mini), so never add or difference one against another.
-EMINI_NET = " E-mini" + NET_POS
-MICRO_NET = CMR_MICRO + NET_POS
-# The Micro listing of each equity index future, by symbol. Each must be one of the
-# symbol's cotdata registry sum_codes (pinned in tests/test_cmr_index.py).
-MICRO_LISTINGS = {"ES": "13874U", "NQ": "209747", "YM": "124608", "RTY": "239747"}
 
 COMM_26_IDX = COMM + LB_26 + IDX
 LARGE_26_IDX = LARGE + LB_26 + IDX
@@ -463,6 +449,13 @@ SETUP_CLS_COL = "_setup_cls"
 SETUP_NPF_COL = "_setup_npf"
 SETUP_NPF_CLS_COL = "_setup_npf_cls"
 IS_EQUITY_COL = "_is_equity"
+# Equity index markets are read on one contract basis at a time (cotmetrics.contracts).
+# The matrix carries what the OTHER basis says, so a view can flag a row whose setup
+# verdict depends on which contracts you count: the other basis's name, whether any
+# model's setup state differs, and a one-line note for a tooltip. Empty elsewhere.
+OTHER_CONTRACTS_COL = "_other_contracts"
+CONTRACTS_DIFFER_COL = "_contracts_differ"
+CONTRACTS_NOTE_COL = "_contracts_note"
 
 ZSCORE_MIN_THRESHOLD = -2.0
 ZSCORE_MAX_THRESHOLD = 2.0
@@ -590,5 +583,7 @@ def get_lookback_header_str(lookback):
 
     if lb_name == "Custom":
         return LB_CUSTOM
+    if lb_name == "CMR":
+        return LB_CMR
 
     return " " + str(lb_weeks)
