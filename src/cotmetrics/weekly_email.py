@@ -106,12 +106,12 @@ def build_message(df, report_date, sender, receiver):
     return msg
 
 
-def send_weekly_matrix_email(report_date=None, lookback="Custom", asset_classes=None,
+def send_weekly_matrix_email(report_date=None, lookback="NPF", asset_classes=None,
                              env=None, smtp_factory=None):
     """Build the Signal Matrix and mail it. Returns the report date that was sent.
 
-    `lookback` defaults to "Custom" so the email matches what the site shows by
-    default rather than a window chosen only here.
+    `lookback` defaults to "NPF" (the frozen research table, called "Custom" before
+    0.19.0) so the email carries the same window the model verdicts are gated on.
 
     The universe comes from whatever COTMETRICS_PARAMS the calling process resolved,
     which is the strongest argument for sending in-process from the app: unset, that

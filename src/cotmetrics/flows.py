@@ -16,7 +16,7 @@ Pure: imports numpy, pandas and constants only, so it runs against the empty sto
 uses. Three choices a reader will otherwise rediscover as bugs:
 
 * The window is FIXED at `const.FLOW_Z_WEEKS` and is not the page lookback.
-  params.yaml sets the Custom lookback to 8 weeks on OJ and 216 on PA; a z against 8
+  params.yaml sets the NPF lookback to 8 weeks on OJ and 216 on PA; a z against 8
   weeks of flow history is noise and one against 216 is a different quantity. The
   window rides in the column name ("Comm Flow Z 52w").
 * No mean subtraction. Weekly net changes have no level to remove: the z says how big

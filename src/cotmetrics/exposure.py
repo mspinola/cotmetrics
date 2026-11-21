@@ -428,7 +428,7 @@ def _open_interest(frame) -> "pd.Series | None":
     return None
 
 
-def market_exposure(name: str, *, leg: str = LEG_COMM, lookback: str = "Custom",
+def market_exposure(name: str, *, leg: str = LEG_COMM, lookback: str = "NPF",
                     window: int = DEFAULT_VOL_WINDOW,
                     min_periods: int = DEFAULT_MIN_PERIODS,
                     max_staleness_days: int = DEFAULT_MAX_STALENESS_DAYS,
@@ -564,7 +564,7 @@ class AggregateExposure(NamedTuple):
     members: dict = {}
 
 
-def aggregate_exposure(names, *, leg: str = LEG_COMM, lookback: str = "Custom",
+def aggregate_exposure(names, *, leg: str = LEG_COMM, lookback: str = "NPF",
                        window: int = DEFAULT_VOL_WINDOW,
                        min_periods: int = DEFAULT_MIN_PERIODS,
                        max_staleness_days: int = DEFAULT_MAX_STALENESS_DAYS,

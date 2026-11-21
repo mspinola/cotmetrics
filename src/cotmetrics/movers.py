@@ -128,7 +128,7 @@ def _leg(value):
     return round(float(value))
 
 
-def get_board(asset_classes=None, lookback="Custom", target_date=None, filter_types=None,
+def get_board(asset_classes=None, lookback="NPF", target_date=None, filter_types=None,
               model=None):
     """Every market's latest row, as the one sweep both Home page strips read.
 
@@ -308,7 +308,7 @@ def select_setups(rows, limit=None):
     return hits[:limit] if limit else hits
 
 
-def get_weekly_movers(asset_classes=None, lookback="Custom", target_date=None, limit=8,
+def get_weekly_movers(asset_classes=None, lookback="NPF", target_date=None, limit=8,
                       filter_types=None, model=None):
     """Markets ranked by the largest week-over-week Commercial index move.
 
@@ -321,7 +321,7 @@ def get_weekly_movers(asset_classes=None, lookback="Custom", target_date=None, l
     )
 
 
-def get_active_setups(asset_classes=None, lookback="Custom", target_date=None, limit=None,
+def get_active_setups(asset_classes=None, lookback="NPF", target_date=None, limit=None,
                       filter_types=None, model=None):
     """Markets at or approaching a positioning gate. Sweep plus selection, as above."""
     return select_setups(

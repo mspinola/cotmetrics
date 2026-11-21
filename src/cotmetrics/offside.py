@@ -213,7 +213,7 @@ def weekly_marks(symbol: str, dates: pd.Index, *,
     return pd.DataFrame({"price": price, "avg": avg, "sigma": sigma}, index=idx)
 
 
-def market_offside(name: str, *, leg: str = "large", lookback: str = "Custom",
+def market_offside(name: str, *, leg: str = "large", lookback: str = "NPF",
                    sigma_weeks: int = DEFAULT_SIGMA_WEEKS,
                    min_weeks: int = DEFAULT_MIN_WEEKS,
                    max_staleness_days: int = DEFAULT_MAX_STALENESS_DAYS,

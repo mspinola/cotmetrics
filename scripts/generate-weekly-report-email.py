@@ -28,8 +28,8 @@ from cotmetrics.weekly_email import (  # noqa: E402
 def main(argv=None):
     parser = argparse.ArgumentParser(description="Send the weekly Signal Matrix email.")
     parser.add_argument(
-        "--lookback", default="Custom",
-        help="index lookback window, matching the site's selector (default: Custom)")
+        "--lookback", default="NPF",
+        help="index lookback window, the frozen NPF research table by default ('Custom' before 0.19.0)")
     parser.add_argument(
         "--report-date", default=None,
         help="override the COT week in the subject line. Defaults to the week the "

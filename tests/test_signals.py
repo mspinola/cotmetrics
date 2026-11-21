@@ -47,7 +47,7 @@ def test_capitulation_flags_bullish_blowoff():
         const.BULL_REJECTION_SCORE: [0.0, 2.0],
         const.BEAR_REJECTION_SCORE: [0.0, 0.0],
         const.OI_ACCELERATION:      [0.0, 1.5],
-        const.LIQUIDITY_STRAIN_CUSTOM: [0.0, -2.0],
+        const.LIQUIDITY_STRAIN_NPF: [0.0, -2.0],
     })
     out = signals.flag_capitulation_events(df)
     assert out[const.FLAG_BULL_CAPITULATION].tolist() == [0, 1]
@@ -59,7 +59,7 @@ def test_capitulation_flags_bearish_blowoff():
         const.BULL_REJECTION_SCORE: [0.0, 0.0],
         const.BEAR_REJECTION_SCORE: [0.0, 2.0],
         const.OI_ACCELERATION:      [0.0, 1.5],
-        const.LIQUIDITY_STRAIN_CUSTOM: [0.0, 2.0],
+        const.LIQUIDITY_STRAIN_NPF: [0.0, 2.0],
     })
     out = signals.flag_capitulation_events(df)
     assert out[const.FLAG_BEAR_CAPITULATION].tolist() == [0, 1]
@@ -79,7 +79,7 @@ def test_capitulation_requires_all_three_conditions():
     df = pd.DataFrame({
         const.BULL_REJECTION_SCORE: [2.0],
         const.OI_ACCELERATION:      [1.5],
-        const.LIQUIDITY_STRAIN_CUSTOM: [0.0],  # not <= -1.0
+        const.LIQUIDITY_STRAIN_NPF: [0.0],  # not <= -1.0
     })
     out = signals.flag_capitulation_events(df)
     assert out[const.FLAG_BULL_CAPITULATION].tolist() == [0]

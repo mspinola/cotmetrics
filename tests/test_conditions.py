@@ -24,7 +24,7 @@ def _df(closes, highs=None, lows=None, oi=None, large_idx=None):
     if oi is not None:
         data[const.OPEN_INTEREST] = list(oi)
     if large_idx is not None:
-        data[const.LARGE_CUSTOM_IDX] = list(large_idx)
+        data[const.LARGE_NPF_IDX] = list(large_idx)
     return pd.DataFrame(data)
 
 

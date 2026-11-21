@@ -189,7 +189,7 @@ def test_the_connection_is_closed_even_when_sending_raises(monkeypatch):
 
 
 def test_the_default_lookback_matches_the_site(monkeypatch):
-    """"Custom" is what the site shows by default. An email on a different window
+    """"NPF" is what the site shows by default. An email on a different window
     would disagree with the page it is a copy of."""
     seen = {}
 
@@ -200,7 +200,7 @@ def test_the_default_lookback_matches_the_site(monkeypatch):
     monkeypatch.setattr(we, "get_matrix_data", spy)
     send_weekly_matrix_email(env=ENV, smtp_factory=StubSMTP)
 
-    assert seen["lookback"] == "Custom"
+    assert seen["lookback"] == "NPF"
 
 
 VERDICT_MATRIX = pd.DataFrame([

@@ -122,6 +122,7 @@ class PositioningModel:
         Returns all three legs even for gates that ignore one. setup_state drops the
         ones spec_legs does not name, so callers do not have to.
         """
+        const.check_lookback(lookback)
         stem = " " + lookback + const.IDX
         suffix = const.NORMALIZED if self.basis == const.BASIS_OI_NORM else ""
         return (const.COMM + stem + suffix,
