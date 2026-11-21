@@ -191,10 +191,17 @@ def lagging_markets(df: pd.DataFrame, report_date: str) -> list:
     return list(zip(behind["Asset"].astype(str), behind["Date"].astype(str)))
 
 
-def generate_matrix_html(df: pd.DataFrame, report_date: str = None) -> str:
+def generate_matrix_html(df: pd.DataFrame, report_date: str = None, *,
+                         verdicts: bool = True) -> str:
     """
     Render the Signal Matrix DataFrame as a self-contained HTML email table
     with dark theme, inline styling, and color-coded numeric cells.
+
+    ``verdicts=False`` renders positioning only, for a surface that must not carry the
+    models: the OI-normalized block is left out, the raw block is titled plain
+    "Positioning", and no index cell is coloured by a model's setup verdict (the cells
+    colour as a row with no setup would). The default is the email as it has always
+    been.
     """
     if df.empty:
         return "<p>No matrix data available.</p>"
@@ -229,6 +236,12 @@ def generate_matrix_html(df: pd.DataFrame, report_date: str = None) -> str:
         # produces the column; see the note there.
         ("Open Interest",  ["OI Z", "Max Pain Pull"]),
     ]
+    if not verdicts:
+        groups = [("Positioning" if name == f"Positioning · {models.RAW_PF.title}" else name,
+                   cols)
+                  for name, cols in groups
+                  if name != f"Positioning · {models.NPF.title}"]
+    setup_cols = [const.SETUP_CLS_COL, const.SETUP_NPF_COL, const.SETUP_NPF_CLS_COL]
 
     # The group header already says which basis the block is, so the column headers
     # drop the "Norm" suffix rather than repeating it three more times. The leg
@@ -297,6 +310,9 @@ def generate_matrix_html(df: pd.DataFrame, report_date: str = None) -> str:
     # Data rows
     for _, row in df.iterrows():
         data_row = '<tr>'
+        # Without verdicts the row is styled as one with no setup state, so no cell can
+        # carry a colour that only a model's gate would give it.
+        style_row = row if verdicts else row.drop(labels=setup_cols, errors="ignore")
         for col in all_cols:
             val = row.get(col)
             sep = " sep" if col in last_in_group else ""
@@ -336,7 +352,7 @@ def generate_matrix_html(df: pd.DataFrame, report_date: str = None) -> str:
                 cls = f"label{sep}"
                 data_row += f'<td class="{cls}">{display}</td>'
             else:
-                cell_style = _cell_style(col, val, row)
+                cell_style = _cell_style(col, val, style_row)
                 display = _fmt(col, val)
                 data_row += f'<td class="{sep.strip()}" style="{cell_style}">{display}</td>'
 
