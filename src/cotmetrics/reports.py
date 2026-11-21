@@ -10,6 +10,7 @@ from datetime import datetime
 import pandas as pd
 
 import cotmetrics.constants as const
+import cotmetrics.contracts as contracts
 import cotmetrics.models as models
 from cotmetrics.indexer import get_indexer
 from cotmetrics.report_styles import _BEAR, _BULL, _DIM, _NEUTRAL, _cell_style, _fmt
@@ -116,7 +117,12 @@ def get_matrix_data(asset_classes, lookback, target_date=None):
             setup_npf_cls = models.NPF_CLS_95_5.setup_state_from(latest, lookback,
                                                                  is_equity)
 
+            other = _other_contracts(asset, lookback, latest.name, is_equity,
+                                     (setup_cls, setup_npf, setup_npf_cls),
+                                     (idx_col, lrg_idx_col, sml_idx_col), latest)
+
             row = {
+                **other,
                 "Asset Class": ac,
                 "Asset": asset,
                 const.SETUP_CLS_COL: setup_cls,
@@ -158,6 +164,49 @@ def get_matrix_data(asset_classes, lookback, target_date=None):
         return pd.DataFrame()
 
     return pd.DataFrame(rows).sort_values(by=["Asset Class", "Asset"])
+
+
+_CONTRACT_LABELS = {contracts.EMINI: "E-mini", contracts.COMBINED: "Combined"}
+_MATRIX_MODELS = (models.RAW_PF, models.NPF, models.NPF_CLS_95_5)
+
+
+def _other_contracts(asset, lookback, when, is_equity, states, idx_cols, latest):
+    """The other contract basis's verdict on the same week, for one matrix row.
+
+    Only markets with two frames (CotIndexer.has_listing_frames) get anything; every
+    other row carries empty values so the columns exist on every frame. "Differs" is
+    any of the three models' setup states disagreeing, which is the question a reader
+    of the board actually has: would this row light up if I counted the other contracts.
+    """
+    empty = {const.OTHER_CONTRACTS_COL: None, const.CONTRACTS_DIFFER_COL: False,
+             const.CONTRACTS_NOTE_COL: None}
+    ix = get_indexer()
+    instrument = ix.get_instrument_from_name(asset)
+    if not ix.has_listing_frames(instrument) or getattr(instrument, "emini_df", None) is None:
+        return empty
+    here = contracts.current_contracts()
+    there = contracts.COMBINED if here == contracts.EMINI else contracts.EMINI
+    alt = ix.get_symbols_data(asset, lookback, contracts=there)
+    if alt is None or alt.empty or when not in alt.index:
+        return {**empty, const.OTHER_CONTRACTS_COL: _CONTRACT_LABELS[there]}
+    row = alt.loc[when]
+    if isinstance(row, pd.DataFrame):
+        row = row.iloc[-1]
+    alt_states = tuple(m.setup_state_from(row, lookback, is_equity) for m in _MATRIX_MODELS)
+    differ = alt_states != tuple(states)
+
+    def triple(r):
+        vals = [r.get(c) for c in idx_cols]
+        return "/".join("-" if pd.isna(v) else f"{v:.0f}" for v in vals)
+
+    note = (f"{_CONTRACT_LABELS[here]} {triple(latest)}, "
+            f"{_CONTRACT_LABELS[there]} {triple(row)} (Comm/Lrg/Sml index)")
+    if differ:
+        changed = [m.title
+                   for m, a, b in zip(_MATRIX_MODELS, alt_states, states) if a != b]
+        note += f". Setup differs on {_CONTRACT_LABELS[there]}: {', '.join(changed)}"
+    return {const.OTHER_CONTRACTS_COL: _CONTRACT_LABELS[there],
+            const.CONTRACTS_DIFFER_COL: differ, const.CONTRACTS_NOTE_COL: note}
 
 
 def newest_report_date(df: pd.DataFrame):

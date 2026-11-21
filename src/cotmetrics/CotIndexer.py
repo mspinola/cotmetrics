@@ -3,7 +3,6 @@ import importlib
 import json
 import os
 import threading
-from functools import lru_cache
 
 import pandas as pd
 import yaml
@@ -11,6 +10,7 @@ import yaml
 import cotmetrics as metrics
 import cotmetrics.categories as categories
 import cotmetrics.constants as const
+import cotmetrics.contracts as contracts
 import cotmetrics.flow_roles as flow_roles
 import cotmetrics.flows as flows
 import cotmetrics.models as models
@@ -51,6 +51,10 @@ class Instrument:
         self.cmr_lookback = cmr_lookback_ if cmr_lookback_ is not None else custom_lookback_
         self.role = role_
         self.df = pd.DataFrame()
+        # The E-mini-alone frame, for equity index markets that sum parallel listings
+        # (see cotmetrics.contracts). None everywhere else. `df` stays the combined
+        # frame, the one every build step and the npf research read.
+        self.emini_df = None
 
     def append(self, df):
         if self.df.empty:
@@ -217,6 +221,7 @@ class CotIndexer:
             self.export_cot_data_to_csv()
             self.export_weekly_summary_results_to_csv()
             self.export_real_test_data_to_csv()
+        self._attach_contract_frames()
         # The daily options fetch is NOT run here — constructing/importing the
         # indexer must not trigger live network I/O. The app calls
         # core.indexer.boot_options_update() explicitly at startup instead.
@@ -649,53 +654,107 @@ class CotIndexer:
         inst.df = merged
 
     @staticmethod
-    def attach_cmr_indexes(instrument, df, read_cot=None):
-        """The CMR index family at instrument.cmr_lookback (see constants.LB_CMR).
+    def has_listing_frames(instrument):
+        """Equity index markets whose combined series sums parallel listings: the
+        ones that get a separate E-mini frame (cotmetrics.contracts)."""
+        if instrument is None or "quit" not in (instrument.asset_class or ""):
+            return False
+        try:
+            import cotdata
+            return bool(cotdata.symbol(instrument.symbol).sum_codes)
+        except Exception:
+            return False
 
-        Plain markets: the index of the frame's own nets. Equity index futures (the
-        symbols in MICRO_LISTINGS): CMR columns from the E-mini alone, plus Micro and
-        Combined twins at the same lookback. Each listing is indexed over ITS OWN
-        history first and only then aligned to the frame's report dates, so a week one
-        listing did not report reads NaN rather than shortening another's window.
+    def _emini_frame(self, inst_obj, read_cot=None):
+        """The E-mini-alone frame of an equity market, from its combined frame.
+
+        Same rows and prices as the combined frame, restricted to the weeks the E-mini
+        itself reported (the summed series reaches back to the full-size contract's
+        own start, before the mini existed). Every raw Legacy column the E-mini read
+        carries is replaced by its value, the TFF Leveraged-Funds columns likewise, and
+        then _derive_metrics runs on the result, so no derived column is carried over.
         """
-        lb = instrument.cmr_lookback
-        legs = ((const.COMM, const.COMM_NET, 'Comm'),
-                (const.LARGE, const.LARGE_NET, 'NonComm'),
-                (const.SMALL, const.SMALL_NET, 'NonRept'))
-        micro_code = const.MICRO_LISTINGS.get(instrument.symbol)
-        if micro_code is None:
-            for leg, net, _ in legs:
-                df[leg + const.LB_CMR + const.IDX] = metrics.rolling_cot_index(df[net], lb)
-            return df
-
         if read_cot is None:
             import cotdata
             read_cot = cotdata.get_cot
-        dates = pd.to_datetime(df[const.REPORT_DATE_XLS])
-        if getattr(dates.dt, 'tz', None) is not None:
-            dates = dates.dt.tz_localize(None)
+        keep_cols = {const.REPORT_DATE_XLS, const.CONTRACT_CODE_XLS}
 
-        def listing(name, net_suffix, idx_suffix):
-            raw = read_cot(instrument.symbol, listing=name).sort_index()
-            raw = raw[~raw.index.duplicated(keep='last')]
-            when = pd.DatetimeIndex(raw.index)
-            if when.tz is not None:
-                when = when.tz_localize(None)
-            for leg, _, col in legs:
-                net = (raw[f'{col}_Positions_Long_All']
-                       - raw[f'{col}_Positions_Short_All']).astype(float)
-                net.index = when
-                idx = pd.Series(metrics.rolling_cot_index(net.reset_index(drop=True), lb).to_numpy(),
-                                index=when)
-                df[leg + net_suffix] = net.reindex(dates).to_numpy()
-                df[leg + const.LB_CMR + idx_suffix + const.IDX] = idx.reindex(dates).to_numpy()
+        def naive(index):
+            when = pd.DatetimeIndex(pd.to_datetime(index))
+            return when.tz_localize(None) if when.tz is not None else when
 
-        listing('primary', const.EMINI_NET, '')
-        listing(micro_code, const.MICRO_NET, const.CMR_MICRO)
-        for leg, net, _ in legs:
-            df[leg + const.LB_CMR + const.CMR_COMBINED + const.IDX] = \
-                metrics.rolling_cot_index(df[net], lb)
-        return df
+        def overwrite(base, raw, cols=None):
+            raw = raw.sort_index()
+            raw = raw[~raw.index.duplicated(keep="last")]
+            raw.index = naive(raw.index)
+            aligned = raw.reindex(naive(base[const.REPORT_DATE_XLS]))
+            for col in (cols if cols is not None else aligned.columns):
+                if col in base.columns and col not in keep_cols and col in aligned.columns:
+                    base[col] = aligned[col].to_numpy()
+            return base
+
+        primary = read_cot(inst_obj.symbol, listing="primary")
+        if primary is None or primary.empty:
+            return None
+        base = inst_obj.df.copy()
+        reported = naive(base[const.REPORT_DATE_XLS]).isin(naive(primary.index))
+        base = base[reported].reset_index(drop=True)
+        base = overwrite(base, primary)
+
+        if const.LEV_LONG_POS_XLS in base.columns:
+            lev_cols = [const.LEV_LONG_POS_XLS, const.LEV_SHORT_POS_XLS,
+                        const.LEV_LONG_TRADERS_XLS, const.LEV_SHORT_TRADERS_XLS]
+            try:
+                tff = read_cot(inst_obj.symbol, report="tff", listing="primary")
+            except Exception as e:
+                utils.cot_logger.warning(f"_emini_frame: tff load failed for {inst_obj.symbol}: {e}")
+                tff = None
+            if tff is not None and not tff.empty:
+                tff = tff.copy()
+                for tc in (const.LEV_LONG_TRADERS_XLS, const.LEV_SHORT_TRADERS_XLS):
+                    if tc in tff.columns:
+                        tff[tc] = pd.to_numeric(tff[tc].astype(str).str.strip(), errors="coerce")
+                base = overwrite(base, tff, lev_cols)
+            else:
+                base[[c for c in lev_cols if c in base.columns]] = float("nan")
+
+        return self._derive_metrics(inst_obj, base).copy()
+
+    def _attach_contract_frames(self):
+        """Build the E-mini frame of every market that has one (has_listing_frames).
+
+        Run after both the cache load and the full build, so every path to a live
+        state carries them. Not cached on disk: four or five markets, rebuilt from the
+        combined frame in a few seconds, and a second cache file per market would be a
+        second thing for the staleness guards to get right.
+        """
+        for code in self.supported_instruments:
+            inst = self.instruments[code]
+            inst.emini_df = None
+            if inst.df is None or inst.df.empty or not self.has_listing_frames(inst):
+                continue
+            try:
+                inst.emini_df = self._emini_frame(inst)
+            except Exception as e:
+                utils.cot_logger.error(f"_attach_contract_frames: {inst.symbol}: {e}")
+
+    @staticmethod
+    def frame_for(instrument, contracts_=None):
+        """The instrument's frame on the requested (or current) contracts."""
+        if instrument is None:
+            return None
+        choice = contracts_ or contracts.current_contracts()
+        if choice == contracts.EMINI and getattr(instrument, "emini_df", None) is not None:
+            return instrument.emini_df
+        return instrument.df
+
+    @staticmethod
+    def listing_for(instrument):
+        """The cotdata `listing=` argument matching the current contracts."""
+        if (contracts.current_contracts() == contracts.EMINI
+                and getattr(instrument, "emini_df", None) is not None):
+            return "primary"
+        return None
 
     @staticmethod
     def process_lookback(lookback, symbol, df):
@@ -1020,6 +1079,55 @@ class CotIndexer:
                 self._stamp_cache_schema()
                 return instrument.df
 
+    def _derive_metrics(self, inst_obj, df):
+        """Every derived column, from a frame carrying the raw COT columns and prices.
+
+        Split out of calculate_weekly_data so the E-mini frame (_emini_frame) runs
+        exactly the same steps on its own positions rather than a copy of them.
+        """
+        df[const.PRICE_CHANGE] = (df[const.CLOSING_PRICE].pct_change() * 100).fillna(0).round(1)
+
+        # 2. Add/calculate all weekly data on the retrieved DataFrame
+        # Add new columns for net positions
+        df[const.COMM_NET] = df[const.COMM_LONG_POS_XLS] - df[const.COMM_SHORT_POS_XLS]
+        df[const.LARGE_NET] = df[const.LARGE_LONG_POS_XLS] - df[const.LARGE_SHORT_POS_XLS]
+        df[const.SMALL_NET] = df[const.SMALL_LONG_POS_XLS] - df[const.SMALL_SHORT_POS_XLS]
+        df[const.COMM_NET_CHANGE_PCT] = (df[const.COMM_NET].pct_change() * 100).fillna(0).round(1)
+
+        # Calculate the COT-MACD metrics
+        macd_line, signal_line, macd_hist = metrics.calculate_cot_macd(df[const.COMM_NET])
+        df[const.COMM_MACD_LINE] = macd_line
+        df[const.COMM_MACD_SIGNAL] = signal_line
+        df[const.COMM_MACD_HIST] = macd_hist
+
+        # Generate Algorithmic Crossover Signals
+        # A bullish cross happens when the histogram flips from negative to positive
+        df[const.COMM_MACD_BULL_CROSS] = (df[const.COMM_MACD_HIST] > 0) & (df[const.COMM_MACD_HIST].shift(1) <= 0)
+        df[const.COMM_MACD_BEAR_CROSS] = (df[const.COMM_MACD_HIST] < 0) & (df[const.COMM_MACD_HIST].shift(1) >= 0)
+
+        # Check for sign change in Net Positions
+        df[const.COMM_FLIP] = (df[const.COMM_NET] * df[const.COMM_NET].shift(1)) < 0
+        df[const.LARGE_FLIP] = (df[const.LARGE_NET] * df[const.LARGE_NET].shift(1)) < 0
+        df[const.SMALL_FLIP] = (df[const.SMALL_NET] * df[const.SMALL_NET].shift(1)) < 0
+
+        # Add new columns for net positions normalized by open interest
+        df[const.COMM_NET_NORM] = df[const.COMM_NET] / (df[const.OPEN_INTEREST_XLS] + 1e-9)
+        df[const.LARGE_NET_NORM] = df[const.LARGE_NET] / (df[const.OPEN_INTEREST_XLS] + 1e-9)
+        df[const.SMALL_NET_NORM] = df[const.SMALL_NET] / (df[const.OPEN_INTEREST_XLS] + 1e-9)
+        df[const.COMM_NET_CHANGE_NORM] = (df[const.COMM_NET_NORM].pct_change() * 100).fillna(0).round(1)
+
+        # Add new columns for position as percent of open interest
+        # Adding epsilon (1e-9) to denominator prevents division by zero
+        df[const.COMM_PCT_OI] = round((df[const.COMM_NET] / (df[const.OPEN_INTEREST_XLS] + 1e-9)) * 100, 2)
+        df[const.LARGE_PCT_OI] = round((df[const.LARGE_NET] / (df[const.OPEN_INTEREST_XLS] + 1e-9)) * 100, 2)
+        df[const.SMALL_PCT_OI] = round((df[const.SMALL_NET] / (df[const.OPEN_INTEREST_XLS] + 1e-9)) * 100, 2)
+
+        df = CotIndexer.process_lookback(["Custom", inst_obj.custom_lookback], inst_obj.symbol, df)
+        for lookback in self.lookbacks:
+            df = CotIndexer.process_lookback(lookback, inst_obj.symbol, df)
+        df = CotIndexer.process_lookback(["CMR", inst_obj.cmr_lookback], inst_obj.symbol, df)
+        return df
+
     def calculate_weekly_data(self, force_refresh=False):
         # Prices come from the cotdata store, one instrument at a time. There used to be
         # a batch backfill here (Databento), which needed a pre-pass to decide which
@@ -1037,47 +1145,7 @@ class CotIndexer:
                 self.years,
                 force_refresh=force_refresh,
             )
-            df[const.PRICE_CHANGE] = (df[const.CLOSING_PRICE].pct_change() * 100).fillna(0).round(1)
-
-            # 2. Add/calculate all weekly data on the retrieved DataFrame
-            # Add new columns for net positions
-            df[const.COMM_NET] = df[const.COMM_LONG_POS_XLS] - df[const.COMM_SHORT_POS_XLS]
-            df[const.LARGE_NET] = df[const.LARGE_LONG_POS_XLS] - df[const.LARGE_SHORT_POS_XLS]
-            df[const.SMALL_NET] = df[const.SMALL_LONG_POS_XLS] - df[const.SMALL_SHORT_POS_XLS]
-            df[const.COMM_NET_CHANGE_PCT] = (df[const.COMM_NET].pct_change() * 100).fillna(0).round(1)
-
-            # Calculate the COT-MACD metrics
-            macd_line, signal_line, macd_hist = metrics.calculate_cot_macd(df[const.COMM_NET])
-            df[const.COMM_MACD_LINE] = macd_line
-            df[const.COMM_MACD_SIGNAL] = signal_line
-            df[const.COMM_MACD_HIST] = macd_hist
-
-            # Generate Algorithmic Crossover Signals
-            # A bullish cross happens when the histogram flips from negative to positive
-            df[const.COMM_MACD_BULL_CROSS] = (df[const.COMM_MACD_HIST] > 0) & (df[const.COMM_MACD_HIST].shift(1) <= 0)
-            df[const.COMM_MACD_BEAR_CROSS] = (df[const.COMM_MACD_HIST] < 0) & (df[const.COMM_MACD_HIST].shift(1) >= 0)
-
-            # Check for sign change in Net Positions
-            df[const.COMM_FLIP] = (df[const.COMM_NET] * df[const.COMM_NET].shift(1)) < 0
-            df[const.LARGE_FLIP] = (df[const.LARGE_NET] * df[const.LARGE_NET].shift(1)) < 0
-            df[const.SMALL_FLIP] = (df[const.SMALL_NET] * df[const.SMALL_NET].shift(1)) < 0
-
-            # Add new columns for net positions normalized by open interest
-            df[const.COMM_NET_NORM] = df[const.COMM_NET] / (df[const.OPEN_INTEREST_XLS] + 1e-9)
-            df[const.LARGE_NET_NORM] = df[const.LARGE_NET] / (df[const.OPEN_INTEREST_XLS] + 1e-9)
-            df[const.SMALL_NET_NORM] = df[const.SMALL_NET] / (df[const.OPEN_INTEREST_XLS] + 1e-9)
-            df[const.COMM_NET_CHANGE_NORM] = (df[const.COMM_NET_NORM].pct_change() * 100).fillna(0).round(1)
-
-            # Add new columns for position as percent of open interest
-            # Adding epsilon (1e-9) to denominator prevents division by zero
-            df[const.COMM_PCT_OI] = round((df[const.COMM_NET] / (df[const.OPEN_INTEREST_XLS] + 1e-9)) * 100, 2)
-            df[const.LARGE_PCT_OI] = round((df[const.LARGE_NET] / (df[const.OPEN_INTEREST_XLS] + 1e-9)) * 100, 2)
-            df[const.SMALL_PCT_OI] = round((df[const.SMALL_NET] / (df[const.OPEN_INTEREST_XLS] + 1e-9)) * 100, 2)
-
-            df = CotIndexer.process_lookback(["Custom", self.instruments[instrument].custom_lookback], self.instruments[instrument].symbol, df)
-            for lookback in self.lookbacks:
-                df = CotIndexer.process_lookback(lookback, self.instruments[instrument].symbol, df)
-            df = CotIndexer.attach_cmr_indexes(inst_obj, df)
+            df = self._derive_metrics(inst_obj, df)
 
             # Return a defragmented dataframe
             self.instruments[instrument].df = df.copy()
@@ -1501,6 +1569,7 @@ class CotIndexer:
         builder.load_instruments()
         builder.populate_instruments()
         builder.calculate_weekly_data()
+        builder._attach_contract_frames()
         return builder._state
 
     # Sized to hold the whole board rather than a round number: 42 instruments x 2 bases
@@ -1512,7 +1581,7 @@ class CotIndexer:
     # built column by column (432 x 242, ~2.9MB deep), so a fully populated cache is
     # ~730MB resident. Raising this further without re-measuring that number is how the
     # server box runs out of RAM.
-    @lru_cache(maxsize=256)
+    @contracts.contracts_cached(256)
     def get_symbols_data(self, name, lookback, basis=const.BASIS_RAW):
         """Weekly frame for one instrument, with the generic alias columns the UI and
         the ML dataset consume.
@@ -1589,7 +1658,7 @@ class CotIndexer:
             OI_ZSCORE_SRC = const.OPEN_INTEREST + lookback + const.ZSCORE
             WILLCO_SRC = const.WILLCO + lookback
 
-            df = instrument.df
+            df = CotIndexer.frame_for(instrument)
             result = df.copy()
 
             result[const.DATE] = df[const.REPORT_DATE_XLS]
@@ -1689,7 +1758,7 @@ class CotIndexer:
     # dimension would collide with it, and its invalidation sidecar has no per-report
     # axis. Recomputing is cheap enough that this is not a trade: ~1,050 weekly rows
     # times five categories is a handful of rolling passes.
-    @lru_cache(maxsize=64)
+    @contracts.contracts_cached(64)
     def get_category_data(self, name, report, lookback="Custom", with_price=True):
         """Per-category frame for one instrument, indexed by Date like get_symbols_data.
 
@@ -1717,7 +1786,9 @@ class CotIndexer:
             return None
 
         weeks = instrument.custom_lookback
-        if lookback != "Custom":
+        if lookback == "CMR":
+            weeks = instrument.cmr_lookback
+        elif lookback != "Custom":
             for lb_name, lb_weeks in self.lookbacks:
                 if str(lb_weeks) == str(lookback) or lb_name == lookback:
                     weeks = lb_weeks
@@ -1728,7 +1799,7 @@ class CotIndexer:
 
         code = self.get_instrument_code_from_name(name)
         try:
-            raw = cotdata.get_cot(code, report=report)
+            raw = cotdata.get_cot(code, report=report, listing=CotIndexer.listing_for(instrument))
         except Exception as e:
             utils.cot_logger.warning(
                 f"get_category_data: {report} load failed for {code}: {e}")
@@ -1744,7 +1815,7 @@ class CotIndexer:
         if with_price:
             price_cols = [const.OPEN_PRICE, const.HIGH_PRICE,
                           const.LOW_PRICE, const.CLOSING_PRICE]
-            base = instrument.df
+            base = CotIndexer.frame_for(instrument)
             have = [c for c in price_cols if c in base.columns]
             if have:
                 prices = base[[const.REPORT_DATE_XLS] + have].copy()
@@ -1764,7 +1835,7 @@ class CotIndexer:
         frame.attrs = attrs
         return frame
 
-    @lru_cache(maxsize=64)
+    @contracts.contracts_cached(64)
     def get_commercial_flow_data(self, name):
         """The Legacy Commercial leg's weekly flow, for the Positioning Index strip.
 
@@ -1783,9 +1854,9 @@ class CotIndexer:
         report), which carries how retail behaves there.
         """
         instrument = self.get_instrument_from_name(name)
-        if instrument is None or instrument.df is None or instrument.df.empty:
+        if instrument is None or CotIndexer.frame_for(instrument) is None or CotIndexer.frame_for(instrument).empty:
             return None
-        df = instrument.df
+        df = CotIndexer.frame_for(instrument)
         if const.COMM_NET not in df.columns:
             return None
         dates = pd.DatetimeIndex(pd.to_datetime(df[const.REPORT_DATE_XLS]))
@@ -1827,7 +1898,7 @@ class CotIndexer:
             return [d.isoformat() for d in dates]
         return []
 
-    @lru_cache(maxsize=32)
+    @contracts.contracts_cached(32)
     def get_positioning_table_by_asset_class(self, asset_classes, lookback, target_date=None):
         from cotmetrics.options_data import get_max_pain_for_symbol
         # Convert list to tuple so lru_cache doesn't crash!
@@ -1891,7 +1962,7 @@ class CotIndexer:
             for instrument_name in instruments:
                 instrument = self.get_instrument_from_name(instrument_name)
                 if instrument:
-                    df = instrument.df
+                    df = CotIndexer.frame_for(instrument)
 
                     if target_date:
                         target_dt = pd.to_datetime(target_date)
@@ -1927,7 +1998,7 @@ class CotIndexer:
                         positioning_df = pd.concat([positioning_df, new_df])
         return positioning_df
 
-    @lru_cache(maxsize=32)
+    @contracts.contracts_cached(32)
     def get_asset_class_z_score_heat(self, asset_class, lookback):
         """Returns the latest Z-scores for all assets in a class."""
         assets = self.get_assets_for_asset_class(asset_class)
@@ -1935,8 +2006,8 @@ class CotIndexer:
 
         for name in assets:
             instrument = self.get_instrument_from_name(name)
-            if instrument is not None and not instrument.df.empty:
-                df = instrument.df
+            if instrument is not None and not CotIndexer.frame_for(instrument).empty:
+                df = CotIndexer.frame_for(instrument)
                 # Get the most recent non-NaN Z-scores
                 latest = df.iloc[-1]
                 if lookback == "26":
@@ -1963,7 +2034,7 @@ class CotIndexer:
 
         return pd.DataFrame(heat_data)
 
-    @lru_cache(maxsize=32)
+    @contracts.contracts_cached(32)
     def get_asset_class_index_heat(self, asset_class, lookback):
         """Returns the latest Index for all assets in a class."""
         assets = self.get_assets_for_asset_class(asset_class)
@@ -1971,8 +2042,8 @@ class CotIndexer:
 
         for name in assets:
             instrument = self.get_instrument_from_name(name)
-            if instrument is not None and not instrument.df.empty:
-                df = instrument.df
+            if instrument is not None and not CotIndexer.frame_for(instrument).empty:
+                df = CotIndexer.frame_for(instrument)
                 # Get the most recent non-NaN Z-scores
                 latest = df.iloc[-1]
 
