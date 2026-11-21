@@ -15,8 +15,15 @@ Only equity index markets with ``sum_codes`` have two frames. Every other market
 and the choice is a no-op there.
 
 Resolution order for a call: an explicit ``contracts=`` argument, then the context set by
-``use_contracts`` (cot-analyzer sets it per request from the viewer's switch), then the
-process default.
+``use_contracts``, then the process default.
+
+**The Combined class.** A process on the EMINI default can still show the summed series,
+as its own asset class rather than a switch: ``enable_combined_class()`` before the indexer
+is built, and CotIndexer adds a twin of each equity market under ``COMBINED_CLASS``, named
+with ``COMBINED_SUFFIX``, always read on the combined frame. Off by default, and
+``CotIndexer.get_asset_classes`` leaves the class out unless asked (``include_combined``),
+so a universe built from the class list (npf's ``resolve_universe``, the movers, the
+setups email) never counts a market twice. Only cot-analyzer turns it on.
 """
 from __future__ import annotations
 
@@ -28,7 +35,11 @@ EMINI = "emini"
 COMBINED = "combined"
 CHOICES = (EMINI, COMBINED)
 
+COMBINED_CLASS = "Equities Combined"
+COMBINED_SUFFIX = " (Combined)"
+
 _default = COMBINED
+_combined_class = False
 _current: contextvars.ContextVar[str | None] = contextvars.ContextVar(
     "cotmetrics_equity_contracts", default=None)
 
@@ -53,13 +64,15 @@ def current_contracts() -> str:
     return _current.get() or _default
 
 
-def set_request_contracts(value: str | None) -> None:
-    """Set (or with None, clear) the context's choice without a with-block.
+def enable_combined_class(on: bool = True) -> None:
+    """Add the Combined equity twins as their own asset class. Set before the indexer
+    is built; cot-analyzer does, npf never does."""
+    global _combined_class
+    _combined_class = bool(on)
 
-    For a web request hook, which has no scope to wrap. A value outside CHOICES clears
-    rather than raises: it comes from a cookie, and a bad cookie must not break a page.
-    """
-    _current.set(value if value in CHOICES else None)
+
+def combined_class_enabled() -> bool:
+    return _combined_class
 
 
 @contextmanager

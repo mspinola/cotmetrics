@@ -449,13 +449,6 @@ SETUP_CLS_COL = "_setup_cls"
 SETUP_NPF_COL = "_setup_npf"
 SETUP_NPF_CLS_COL = "_setup_npf_cls"
 IS_EQUITY_COL = "_is_equity"
-# Equity index markets are read on one contract basis at a time (cotmetrics.contracts).
-# The matrix carries what the OTHER basis says, so a view can flag a row whose setup
-# verdict depends on which contracts you count: the other basis's name, whether any
-# model's setup state differs, and a one-line note for a tooltip. Empty elsewhere.
-OTHER_CONTRACTS_COL = "_other_contracts"
-CONTRACTS_DIFFER_COL = "_contracts_differ"
-CONTRACTS_NOTE_COL = "_contracts_note"
 
 ZSCORE_MIN_THRESHOLD = -2.0
 ZSCORE_MAX_THRESHOLD = 2.0

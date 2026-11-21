@@ -55,6 +55,9 @@ class Instrument:
         # (see cotmetrics.contracts). None everywhere else. `df` stays the combined
         # frame, the one every build step and the npf research read.
         self.emini_df = None
+        # Set on a Combined-class twin (cotmetrics.contracts.enable_combined_class):
+        # the code of the market it twins. Its df IS that market's combined frame.
+        self.twin_of = None
 
     def append(self, df):
         if self.df.empty:
@@ -659,6 +662,8 @@ class CotIndexer:
         ones that get a separate E-mini frame (cotmetrics.contracts)."""
         if instrument is None or "quit" not in (instrument.asset_class or ""):
             return False
+        if getattr(instrument, "twin_of", None) is not None:
+            return False
         try:
             import cotdata
             return bool(cotdata.symbol(instrument.symbol).sum_codes)
@@ -728,6 +733,9 @@ class CotIndexer:
         combined frame in a few seconds, and a second cache file per market would be a
         second thing for the staleness guards to get right.
         """
+        for key in [k for k, i in self.instruments.items() if i.twin_of is not None]:
+            del self.instruments[key]
+        self.asset_class_map.pop(contracts.COMBINED_CLASS, None)
         for code in self.supported_instruments:
             inst = self.instruments[code]
             inst.emini_df = None
@@ -737,6 +745,30 @@ class CotIndexer:
                 inst.emini_df = self._emini_frame(inst)
             except Exception as e:
                 utils.cot_logger.error(f"_attach_contract_frames: {inst.symbol}: {e}")
+                continue
+            if contracts.combined_class_enabled():
+                self._add_combined_twin(inst)
+
+    @staticmethod
+    def twin_key(code):
+        return f"{code}{contracts.COMBINED_SUFFIX}"
+
+    def _add_combined_twin(self, inst):
+        """Register `inst`'s combined frame as its own market in COMBINED_CLASS.
+
+        Same symbol, code, lookbacks and role (a heldout market stays heldout), its own
+        name, and with no E-mini frame of its own, so frame_for always returns the
+        combined `df` whatever the process default. Keyed off the real code rather than
+        on it, and kept out of supported_instruments, so no build, cache or export pass
+        ever sees it.
+        """
+        twin = Instrument(contracts.COMBINED_CLASS, inst.name + contracts.COMBINED_SUFFIX,
+                          inst.symbol, inst.code, inst.custom_lookback, inst.role,
+                          inst.cmr_lookback)
+        twin.df = inst.df
+        twin.twin_of = inst.code
+        self.instruments[self.twin_key(inst.code)] = twin
+        self.asset_class_map.setdefault(contracts.COMBINED_CLASS, set()).add(twin.name)
 
     @staticmethod
     def frame_for(instrument, contracts_=None):
@@ -1372,16 +1404,24 @@ class CotIndexer:
 
         return result_df
 
-    def get_asset_classes(self, sort=True, exclude_financial=False, include_heldout=False):
+    def get_asset_classes(self, sort=True, exclude_financial=False, include_heldout=False,
+                          include_combined=False):
         # Default excludes role:heldout markets so neither the dashboard nor a
         # config's asset_classes universe (resolve_universe) picks them up — they are
         # collected + indexed but out of selection. Pass include_heldout=True for the
         # full set. A class whose every member is heldout drops out entirely.
+        #
+        # The Combined equity class (cotmetrics.contracts) is left out unless asked
+        # for: its markets are second readings of the Equities markets, so anything
+        # that counts or ranks over the class list would count them twice. Views that
+        # show it pass include_combined=True.
         src = self.asset_class_map if include_heldout else self.plotted_asset_class_map()
         if exclude_financial:
             classes = [asset for asset in src if metrics.is_commodity(asset)]
         else:
             classes = list(src)
+        if not include_combined:
+            classes = [c for c in classes if c != contracts.COMBINED_CLASS]
         if sort:
             classes.sort()
         return classes
@@ -1414,10 +1454,17 @@ class CotIndexer:
     def get_instrument_names(self):
         result = []
         for code in self.instruments:
-            result.append(self.instruments[code].symbol)
+            if self.instruments[code].twin_of is None:
+                result.append(self.instruments[code].symbol)
         return result
 
+    def is_combined_twin(self, name):
+        """True for a Combined-class market (a second reading of an Equities one)."""
+        inst = self.get_instrument_from_name(name)
+        return inst is not None and inst.twin_of is not None
+
     def get_instrument_symbol_from_name(self, name):
+        # A twin shares its market's symbol, so this already answers for it.
         for code in self.instruments:
             if self.instruments[code].name == name:
                 return self.instruments[code].symbol
@@ -1429,9 +1476,11 @@ class CotIndexer:
         return None
 
     def get_instrument_code_from_name(self, name):
+        # The CFTC code, not the dict key: a Combined twin is keyed apart from its
+        # market but reads the same store files.
         for code in self.instruments:
             if self.instruments[code].name == name:
-                return code
+                return self.instruments[code].code
         return None
 
     def get_instrument_from_name(self, name):
@@ -1441,8 +1490,10 @@ class CotIndexer:
         return None
 
     def get_instrument_from_symbol(self, symbol):
+        # The market, never its Combined twin, which shares the symbol.
         for inst_code in self.instruments:
-            if self.instruments[inst_code].symbol == symbol:
+            if (self.instruments[inst_code].symbol == symbol
+                    and self.instruments[inst_code].twin_of is None):
                 return self.instruments[inst_code]
         return None
 
