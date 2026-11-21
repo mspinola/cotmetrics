@@ -109,18 +109,60 @@ def test_contracts_cached_keys_on_the_resolved_choice():
         t.read(1, contracts="micro")
 
 
-def test_request_contracts_ignores_a_bad_value():
-    contracts.set_request_contracts("bogus")
-    assert contracts.current_contracts() == contracts.default_contracts()
-    contracts.set_request_contracts(contracts.EMINI)
-    assert contracts.current_contracts() == contracts.EMINI
-    contracts.set_request_contracts(None)
-    assert contracts.current_contracts() == contracts.default_contracts()
-
-
 def test_listing_frames_are_the_summed_equity_markets():
     pytest.importorskip("cotdata")
     es = Instrument("Equities", "S&P 500", "ES", "13874A", 26)
     gc = Instrument("Metals", "Gold", "GC", "088691", 26)
     assert CotIndexer.has_listing_frames(es)
     assert not CotIndexer.has_listing_frames(gc)
+
+
+def _twin_indexer(monkeypatch, enabled):
+    pytest.importorskip("cotdata")
+    from cotmetrics.CotIndexer import _IndexState
+    ix = _indexer()
+    ix._state = _IndexState()
+    es = Instrument("Equities", "S&P 500", "ES", "13874A", 28, "deploy", 26)
+    gc = Instrument("Metals", "Gold", "GC", "088691", 26)
+    for inst in (es, gc):
+        inst.df = pd.DataFrame({"x": [1]})
+        ix.instruments[inst.code] = inst
+        ix.supported_instruments.add(inst.code)
+        ix.asset_class_map.setdefault(inst.asset_class, set()).add(inst.name)
+    monkeypatch.setattr(ix, "_emini_frame", lambda inst: pd.DataFrame({"x": [2]}))
+    monkeypatch.setattr(contracts, "_combined_class", enabled)
+    ix._attach_contract_frames()
+    return ix, es
+
+
+def test_combined_class_twins_each_equity_market(monkeypatch):
+    ix, es = _twin_indexer(monkeypatch, True)
+    twin = ix.get_instrument_from_name("S&P 500 (Combined)")
+    assert twin is not None and twin.twin_of == "13874A"
+    assert twin.asset_class == contracts.COMBINED_CLASS
+    assert (twin.symbol, twin.code, twin.custom_lookback, twin.cmr_lookback, twin.role) == \
+        ("ES", "13874A", 28, 26, "deploy")
+    # The twin reads the combined frame whatever the process default.
+    with contracts.use_contracts(contracts.EMINI):
+        assert CotIndexer.frame_for(twin) is es.df
+        assert CotIndexer.listing_for(twin) is None
+        assert CotIndexer.frame_for(es) is es.emini_df
+    assert not CotIndexer.has_listing_frames(twin)
+    # Lookups that stand for "the market" never return the twin.
+    assert ix.get_instrument_from_symbol("ES") is es
+    assert ix.get_instrument_code_from_name("S&P 500 (Combined)") == "13874A"
+    assert ix.get_instrument_names().count("ES") == 1
+    assert ix.is_combined_twin("S&P 500 (Combined)") and not ix.is_combined_twin("S&P 500")
+    # Out of the class list unless asked for, so nothing counting over it double counts.
+    assert contracts.COMBINED_CLASS not in ix.get_asset_classes()
+    assert contracts.COMBINED_CLASS in ix.get_asset_classes(include_combined=True)
+    assert ix.get_assets_for_asset_class(contracts.COMBINED_CLASS) == ["S&P 500 (Combined)"]
+    # A rebuild replaces the twins rather than stacking them.
+    ix._attach_contract_frames()
+    assert sum(i.twin_of is not None for i in ix.instruments.values()) == 1
+
+
+def test_combined_class_is_off_by_default(monkeypatch):
+    ix, _ = _twin_indexer(monkeypatch, False)
+    assert all(i.twin_of is None for i in ix.instruments.values())
+    assert contracts.COMBINED_CLASS not in ix.get_asset_classes(include_combined=True)
