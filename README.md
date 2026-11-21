@@ -53,6 +53,20 @@ symbols, untuned 52-week lookbacks) so cotmetrics runs out of the box. For a rea
 instrument universe and any tuned parameters, set `COTMETRICS_PARAMS` to your own
 config file.
 
+Each instrument carries `NpfLookbackWeeks`, a per-market window that every frame
+computes the full lookback family on, under the column infix `NPF` (`"Comm NPF Idx"`,
+`"Comm NPF Zscore"`, ...) and the lookback argument `"NPF"`. Fixed windows (26, 52)
+come from `Lookbacks`, and an optional `CmrLookbackWeeks` adds the `CMR` family.
+
+**Deprecated in 0.19.0, removal not before 0.20.0:** the NPF table was called `Custom`.
+Until removal, `CustomLookbackWeeks` is still read when `NpfLookbackWeeks` is absent (a
+file carrying both with different values is refused), frames also carry an identical
+copy of the family under the old `Custom` infix (`"Comm Custom Idx"`), the lookback
+argument `"Custom"` is accepted wherever `"NPF"` is, `Instrument.custom_lookback`
+aliases `npf_lookback`, and the old constants (`COMM_CUSTOM_IDX`, ...) resolve to the
+new columns. Each of these emits a `DeprecationWarning`. Values are identical under
+both names.
+
 ## Scheduling (weekly COT refresh + email)
 
 COT data is produced by cotdata, not here. cotmetrics only reads the shared store, so

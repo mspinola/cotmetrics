@@ -140,7 +140,7 @@ def test_combined_class_twins_each_equity_market(monkeypatch):
     twin = ix.get_instrument_from_name("S&P 500 (Combined)")
     assert twin is not None and twin.twin_of == "13874A"
     assert twin.asset_class == contracts.COMBINED_CLASS
-    assert (twin.symbol, twin.code, twin.custom_lookback, twin.cmr_lookback, twin.role) == \
+    assert (twin.symbol, twin.code, twin.npf_lookback, twin.cmr_lookback, twin.role) == \
         ("ES", "13874A", 28, 26, "deploy")
     # The twin reads the combined frame whatever the process default.
     with contracts.use_contracts(contracts.EMINI):

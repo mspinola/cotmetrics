@@ -22,7 +22,7 @@ from cotmetrics.CotIndexer import CotIndexer
 # `self` can be passed and nothing is shared between tests.
 _get_symbols_data = CotIndexer.get_symbols_data.__wrapped__
 
-LB = const.LB_CUSTOM  # " Custom"
+LB = const.LB_NPF  # " NPF"
 
 # Distinct sentinel per (metric, family) so a mis-wired alias can't accidentally pass.
 RAW_VALUES = {
@@ -56,7 +56,7 @@ def stub_self(monkeypatch):
     """A CotIndexer stand-in wired to a synthetic instrument, with the DB check and the
     signal engine stubbed out so only the alias selection is under test."""
     instrument = types.SimpleNamespace(
-        df=_frame(), symbol="XX", custom_lookback=26, asset_class="Test",
+        df=_frame(), symbol="XX", npf_lookback=26, asset_class="Test",
     )
     monkeypatch.setattr(indexer_mod.cotDatabase, "latest_update_timestamp", lambda: "t0")
     # Identity signal engine: record the flag it was handed, change nothing.
@@ -100,7 +100,7 @@ def test_every_promised_alias_is_on_the_frame(stub_self):
     """The guard the constants exist to enable. A consumer that reads a name this
     function never assigns gets a neutral-looking default from `.get`, not an error,
     so the mismatch has to be caught here rather than at read time."""
-    out = _get_symbols_data(stub_self, "GC", "Custom")
+    out = _get_symbols_data(stub_self, "GC", "NPF")
     assert [a for a in ALIAS_COLUMNS if a not in out.columns] == []
 
 
@@ -138,12 +138,12 @@ def test_raw_is_the_default_basis():
 
 def test_unknown_basis_is_rejected():
     with pytest.raises(ValueError, match="unknown basis"):
-        _get_symbols_data(types.SimpleNamespace(), "GC", "Custom", "percent")
+        _get_symbols_data(types.SimpleNamespace(), "GC", "NPF", "percent")
 
 
 # ── alias selection ─────────────────────────────────────────────────────────────
 def test_raw_basis_puts_the_raw_family_on_the_aliases(stub_self):
-    out = _get_symbols_data(stub_self, "GC", "Custom")
+    out = _get_symbols_data(stub_self, "GC", "NPF")
     assert out[const.COMMS_IDX].iloc[-1] == RAW_VALUES["idx"]
     assert out[const.LRG_ZSCORE].iloc[-1] == RAW_VALUES["zscore"]
     assert out[const.SML_SPEARMAN].iloc[-1] == RAW_VALUES["spearman"]
@@ -153,7 +153,7 @@ def test_raw_basis_puts_the_raw_family_on_the_aliases(stub_self):
 
 
 def test_oi_norm_basis_puts_the_normalized_family_on_the_aliases(stub_self):
-    out = _get_symbols_data(stub_self, "GC", "Custom", const.BASIS_OI_NORM)
+    out = _get_symbols_data(stub_self, "GC", "NPF", const.BASIS_OI_NORM)
     assert out[const.COMMS_IDX].iloc[-1] == NORM_VALUES["idx"]
     assert out[const.LRG_ZSCORE].iloc[-1] == NORM_VALUES["zscore"]
     assert out[const.SML_SPEARMAN].iloc[-1] == NORM_VALUES["spearman"]
@@ -165,7 +165,7 @@ def test_oi_norm_basis_puts_the_normalized_family_on_the_aliases(stub_self):
 def test_every_alias_moves_together(stub_self):
     """A mixed frame — a normalized index next to a raw z-score — would make the signal
     engine compare two different units inside one condition set."""
-    out = _get_symbols_data(stub_self, "GC", "Custom", const.BASIS_OI_NORM)
+    out = _get_symbols_data(stub_self, "GC", "NPF", const.BASIS_OI_NORM)
     aliases = [const.COMMS_IDX, const.LRG_IDX, const.SML_IDX,
                const.COMMS_ZSCORE, const.LRG_ZSCORE, const.SML_ZSCORE,
                const.COMMS_SPEARMAN, const.LRG_SPEARMAN, const.SML_SPEARMAN,
@@ -176,9 +176,9 @@ def test_every_alias_moves_together(stub_self):
 
 
 def test_basis_is_threaded_into_the_signal_engine(stub_self):
-    _get_symbols_data(stub_self, "GC", "Custom", const.BASIS_OI_NORM)
+    _get_symbols_data(stub_self, "GC", "NPF", const.BASIS_OI_NORM)
     assert stub_self._seen["normalized"] is True
-    _get_symbols_data(stub_self, "GC", "Custom", const.BASIS_RAW)
+    _get_symbols_data(stub_self, "GC", "NPF", const.BASIS_RAW)
     assert stub_self._seen["normalized"] is False
 
 
@@ -189,8 +189,8 @@ def test_basis_is_threaded_into_the_signal_engine(stub_self):
 def test_wow_follows_the_basis_like_every_other_level_metric(stub_self):
     """The WoW delta is a point change *of the index above*, so it cannot stay raw
     while the index it is derived from switches."""
-    raw = _get_symbols_data(stub_self, "GC", "Custom", const.BASIS_RAW)
-    norm = _get_symbols_data(stub_self, "GC", "Custom", const.BASIS_OI_NORM)
+    raw = _get_symbols_data(stub_self, "GC", "NPF", const.BASIS_RAW)
+    norm = _get_symbols_data(stub_self, "GC", "NPF", const.BASIS_OI_NORM)
     for alias in (const.COMM_WOW, const.LRG_WOW, const.SML_WOW):
         assert raw[alias].iloc[-1] == RAW_VALUES["wow"]
         assert norm[alias].iloc[-1] == NORM_VALUES["wow"]
@@ -200,6 +200,6 @@ def test_wow_follows_the_basis_like_every_other_level_metric(stub_self):
 def test_the_cache_guard_probes_both_wow_families():
     """The normalized twin landed after the raw one, so a cache built in between has
     the first and not the second and must still be rejected."""
-    assert const.COMM_CUSTOM_WOW_NORM == const.COMM_CUSTOM_WOW + const.NORMALIZED
+    assert const.COMM_NPF_WOW_NORM == const.COMM_NPF_WOW + const.NORMALIZED
     src = inspect.getsource(CotIndexer.try_load_from_cache)
-    assert "COMM_CUSTOM_WOW" in src and "COMM_CUSTOM_WOW_NORM" in src
+    assert "COMM_NPF_WOW" in src and "COMM_NPF_WOW_NORM" in src

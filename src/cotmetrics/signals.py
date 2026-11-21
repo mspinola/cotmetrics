@@ -1073,7 +1073,7 @@ def flag_capitulation_events(df: pd.DataFrame) -> pd.DataFrame:
     LSR_SQUEEZE_FLOOR = 1.0     # Specs must be overcrowded / trapped
 
     # Ensure columns exist, fill with 0 if missing
-    for col in [const.BULL_REJECTION_SCORE, const.BEAR_REJECTION_SCORE, const.OI_ACCELERATION, const.LIQUIDITY_STRAIN_CUSTOM]:
+    for col in [const.BULL_REJECTION_SCORE, const.BEAR_REJECTION_SCORE, const.OI_ACCELERATION, const.LIQUIDITY_STRAIN_NPF]:
         if col not in df.columns:
             df[col] = 0.0
 
@@ -1081,7 +1081,7 @@ def flag_capitulation_events(df: pd.DataFrame) -> pd.DataFrame:
     df[const.FLAG_BULL_CAPITULATION] = np.where(
         (df[const.BULL_REJECTION_SCORE] >= REJECTION_THRESHOLD) &
         (df[const.OI_ACCELERATION] >= OI_ACCEL_THRESHOLD) &
-        (df[const.LIQUIDITY_STRAIN_CUSTOM] <= -LSR_SQUEEZE_FLOOR),
+        (df[const.LIQUIDITY_STRAIN_NPF] <= -LSR_SQUEEZE_FLOOR),
         1, 0
     )
 
@@ -1089,7 +1089,7 @@ def flag_capitulation_events(df: pd.DataFrame) -> pd.DataFrame:
     df[const.FLAG_BEAR_CAPITULATION] = np.where(
         (df[const.BEAR_REJECTION_SCORE] >= REJECTION_THRESHOLD) &
         (df[const.OI_ACCELERATION] >= OI_ACCEL_THRESHOLD) &
-        (df[const.LIQUIDITY_STRAIN_CUSTOM] >= LSR_SQUEEZE_FLOOR), # Specs overcrowded long
+        (df[const.LIQUIDITY_STRAIN_NPF] >= LSR_SQUEEZE_FLOOR), # Specs overcrowded long
         1, 0
     )
 

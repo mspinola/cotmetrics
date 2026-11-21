@@ -33,12 +33,12 @@ roles:
 # are the untuned 52-week default. Replace with your own via COTMETRICS_PARAMS.
 AssetClasses:
   - Equities:
-      - { Name: "S&P 500", Symbol: "ES", CustomLookbackWeeks: 52, TV_Chart: "SPY" }
-      - { Name: "Nasdaq", Symbol: "NQ", CustomLookbackWeeks: 52, TV_Chart: "QQQ" }
+      - { Name: "S&P 500", Symbol: "ES", NpfLookbackWeeks: 52, TV_Chart: "SPY" }
+      - { Name: "Nasdaq", Symbol: "NQ", NpfLookbackWeeks: 52, TV_Chart: "QQQ" }
       # Example held-out market (indexed but kept out of the dashboard/selection).
-      - { Name: "Russell 2000", Symbol: "RTY", CustomLookbackWeeks: 52, TV_Chart: "IWM", Role: heldout }
+      - { Name: "Russell 2000", Symbol: "RTY", NpfLookbackWeeks: 52, TV_Chart: "IWM", Role: heldout }
   - Metals:
-      - { Name: "Gold", Symbol: "GC", CustomLookbackWeeks: 52, TV_Chart: "GOLD" }
-      - { Name: "Silver", Symbol: "SI", CustomLookbackWeeks: 52, TV_Chart: "SILVER" }
+      - { Name: "Gold", Symbol: "GC", NpfLookbackWeeks: 52, TV_Chart: "GOLD" }
+      - { Name: "Silver", Symbol: "SI", NpfLookbackWeeks: 52, TV_Chart: "SILVER" }
   - Energies:
-      - { Name: "Crude Oil", Symbol: "CL", CustomLookbackWeeks: 52, TV_Chart: "USOIL" }
+      - { Name: "Crude Oil", Symbol: "CL", NpfLookbackWeeks: 52, TV_Chart: "USOIL" }

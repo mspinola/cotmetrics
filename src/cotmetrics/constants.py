@@ -46,7 +46,7 @@ OPTIONS_DIR = os.environ.get(
 # (e.g. the Spearman fallback going 0.0 -> NaN). Bump this whenever a metrics
 # change alters previously-cached values, and the parquet caches rebuild
 # themselves instead of needing a manual `rm ~/.cache/cotmetrics/*.parquet`.
-METRICS_CACHE_VERSION = 3  # 2: CMR index family. 3: full CMR lookback family, one basis per frame
+METRICS_CACHE_VERSION = 4  # 2: CMR index family. 3: full CMR lookback family, one basis per frame. 4: Custom family renamed NPF (Custom kept as a copy)
 
 # Columns of COT data to consume
 MARKET_NAME_XLS = "Market_and_Exchange_Names"
@@ -99,7 +99,11 @@ FLOW_Z_WEEKS = 52               # docs/analysis/2026-09-26-cot-flow-states-gold.
 FLOW_Z_MIN_PERIODS = 26         # same doc, Z_MIN: half the window before a reading prints
 FLOW_MAX_GAP_DAYS = 8           # docs/design/cot-flows.md section 5: a missed report week
 
-LB_CUSTOM = " Custom"
+# The frozen per-market table the NPF research and livebook were validated on
+# (NpfLookbackWeeks in params.yaml). Called "Custom" until 0.19.0; see
+# the deprecated block at the end of this module for what still answers to the old name.
+LB_NPF = " NPF"
+LB_NPF_FAMILY = "NPF"
 LB_26 = " 26"
 LB_52 = " 52"
 LB_3Y = " 3Y"
@@ -112,7 +116,7 @@ BASIS_RAW = "raw"
 BASIS_OI_NORM = "oi_norm"
 BASIS_CHOICES = (BASIS_RAW, BASIS_OI_NORM)
 
-OPEN_INTEREST_CUSTOM_ZSCORE = OPEN_INTEREST + LB_CUSTOM + ZSCORE
+OPEN_INTEREST_NPF_ZSCORE = OPEN_INTEREST + LB_NPF + ZSCORE
 OPEN_INTEREST_26_ZSCORE = OPEN_INTEREST + LB_26 + ZSCORE
 OPEN_INTEREST_52_ZSCORE = OPEN_INTEREST + LB_52 + ZSCORE
 
@@ -218,9 +222,9 @@ OBOS_LEV_PSIZE_OVERBOUGHT_DECILE = 'obos_lev_psize_overbought_decile'
 OBOS_LEV_TRIPLE_OVERSOLD_DECILE = 'obos_lev_triple_oversold_decile'
 OBOS_LEV_TRIPLE_OVERBOUGHT_DECILE = 'obos_lev_triple_overbought_decile'
 
-COMM_CUSTOM_CORR = COMM + LB_CUSTOM + SPEARMAN
-LARGE_CUSTOM_CORR = LARGE + LB_CUSTOM + SPEARMAN
-SMALL_CUSTOM_CORR = SMALL + LB_CUSTOM + SPEARMAN
+COMM_NPF_CORR = COMM + LB_NPF + SPEARMAN
+LARGE_NPF_CORR = LARGE + LB_NPF + SPEARMAN
+SMALL_NPF_CORR = SMALL + LB_NPF + SPEARMAN
 COMM_26_CORR = COMM + LB_26 + SPEARMAN
 LARGE_26_CORR = LARGE + LB_26 + SPEARMAN
 SMALL_26_CORR = SMALL + LB_26 + SPEARMAN
@@ -228,9 +232,9 @@ COMM_52_CORR = COMM + LB_52 + SPEARMAN
 LARGE_52_CORR = LARGE + LB_52 + SPEARMAN
 SMALL_52_CORR = SMALL + LB_52 + SPEARMAN
 
-COMM_CUSTOM_NORM_CORR = COMM_CUSTOM_CORR + NORMALIZED
-LARGE_CUSTOM_NORM_CORR = LARGE_CUSTOM_CORR + NORMALIZED
-SMALL_CUSTOM_NORM_CORR = SMALL_CUSTOM_CORR + NORMALIZED
+COMM_NPF_NORM_CORR = COMM_NPF_CORR + NORMALIZED
+LARGE_NPF_NORM_CORR = LARGE_NPF_CORR + NORMALIZED
+SMALL_NPF_NORM_CORR = SMALL_NPF_CORR + NORMALIZED
 COMM_26_NORM_CORR = COMM_26_CORR + NORMALIZED
 LARGE_26_NORM_CORR = LARGE_26_CORR + NORMALIZED
 SMALL_26_NORM_CORR = SMALL_26_CORR + NORMALIZED
@@ -238,13 +242,13 @@ COMM_52_NORM_CORR = COMM_52_CORR + NORMALIZED
 LARGE_52_NORM_CORR = LARGE_52_CORR + NORMALIZED
 SMALL_52_NORM_CORR = SMALL_52_CORR + NORMALIZED
 
-COMM_CUSTOM_IDX = COMM + LB_CUSTOM + IDX
-LARGE_CUSTOM_IDX = LARGE + LB_CUSTOM + IDX
-SMALL_CUSTOM_IDX = SMALL + LB_CUSTOM + IDX
+COMM_NPF_IDX = COMM + LB_NPF + IDX
+LARGE_NPF_IDX = LARGE + LB_NPF + IDX
+SMALL_NPF_IDX = SMALL + LB_NPF + IDX
 # CMR family: the full lookback family (index, z-score, WILLCO, momentum...) at each
 # instrument's CmrLookbackWeeks, the lookbacks that reproduce CMR's published pre-algo
 # index (params.yaml says how they were fitted). Display and comparison only: the
-# validated books read the Custom family. A frame is ONE contract basis throughout, so
+# validated books read the NPF family. A frame is ONE contract basis throughout, so
 # for an equity index future these columns are the E-mini in the E-mini frame and the
 # combined market in the combined one (see cotmetrics.contracts). CMR's own numbers are
 # the E-mini frame's.
@@ -264,9 +268,9 @@ COMM_3Y_IDX = COMM + LB_3Y + IDX
 COMM_NET_NORM = COMM_NET + NORMALIZED
 LARGE_NET_NORM = LARGE_NET + NORMALIZED
 SMALL_NET_NORM = SMALL_NET + NORMALIZED
-COMM_CUSTOM_IDX_NORM = COMM + LB_CUSTOM + IDX + NORMALIZED
-LARGE_CUSTOM_IDX_NORM = LARGE + LB_CUSTOM + IDX + NORMALIZED
-SMALL_CUSTOM_IDX_NORM = SMALL + LB_CUSTOM + IDX + NORMALIZED
+COMM_NPF_IDX_NORM = COMM + LB_NPF + IDX + NORMALIZED
+LARGE_NPF_IDX_NORM = LARGE + LB_NPF + IDX + NORMALIZED
+SMALL_NPF_IDX_NORM = SMALL + LB_NPF + IDX + NORMALIZED
 COMM_26_IDX_NORM = COMM + LB_26 + IDX + NORMALIZED
 LARGE_26_IDX_NORM = LARGE + LB_26 + IDX + NORMALIZED
 SMALL_26_IDX_NORM = SMALL + LB_26 + IDX + NORMALIZED
@@ -275,9 +279,9 @@ LARGE_52_IDX_NORM = LARGE + LB_52 + IDX + NORMALIZED
 SMALL_52_IDX_NORM = SMALL + LB_52 + IDX + NORMALIZED
 COMM_3Y_IDX_NORM = COMM + LB_3Y + IDX + NORMALIZED
 
-COMM_CUSTOM_ZSCORE = COMM + LB_CUSTOM + ZSCORE
-LARGE_CUSTOM_ZSCORE = LARGE + LB_CUSTOM + ZSCORE
-SMALL_CUSTOM_ZSCORE = SMALL + LB_CUSTOM + ZSCORE
+COMM_NPF_ZSCORE = COMM + LB_NPF + ZSCORE
+LARGE_NPF_ZSCORE = LARGE + LB_NPF + ZSCORE
+SMALL_NPF_ZSCORE = SMALL + LB_NPF + ZSCORE
 COMM_26_ZSCORE = COMM + LB_26 + ZSCORE
 LARGE_26_ZSCORE = LARGE + LB_26 + ZSCORE
 SMALL_26_ZSCORE = SMALL + LB_26 + ZSCORE
@@ -285,9 +289,9 @@ COMM_52_ZSCORE = COMM + LB_52 + ZSCORE
 LARGE_52_ZSCORE = LARGE + LB_52 + ZSCORE
 SMALL_52_ZSCORE = SMALL + LB_52 + ZSCORE
 
-COMM_CUSTOM_ZSCORE_NORM = COMM_CUSTOM_ZSCORE + NORMALIZED
-LARGE_CUSTOM_ZSCORE_NORM = LARGE_CUSTOM_ZSCORE + NORMALIZED
-SMALL_CUSTOM_ZSCORE_NORM = SMALL_CUSTOM_ZSCORE + NORMALIZED
+COMM_NPF_ZSCORE_NORM = COMM_NPF_ZSCORE + NORMALIZED
+LARGE_NPF_ZSCORE_NORM = LARGE_NPF_ZSCORE + NORMALIZED
+SMALL_NPF_ZSCORE_NORM = SMALL_NPF_ZSCORE + NORMALIZED
 COMM_26_ZSCORE_NORM = COMM_26_ZSCORE + NORMALIZED
 LARGE_26_ZSCORE_NORM = LARGE_26_ZSCORE + NORMALIZED
 SMALL_26_ZSCORE_NORM = SMALL_26_ZSCORE + NORMALIZED
@@ -318,8 +322,8 @@ SML_WOW = "sml_wow"
 # get_symbols_data would KeyError on it. See try_load_from_cache. The normalized twin
 # arrived later than the raw one, so both are checked -- a cache built in between has
 # the first and not the second.
-COMM_CUSTOM_WOW = COMM + LB_CUSTOM + WOW_MOVE
-COMM_CUSTOM_WOW_NORM = COMM_CUSTOM_WOW + NORMALIZED
+COMM_NPF_WOW = COMM + LB_NPF + WOW_MOVE
+COMM_NPF_WOW_NORM = COMM_NPF_WOW + NORMALIZED
 
 OPEN_PRICE = "Open Price"
 HIGH_PRICE = "High Price"
@@ -328,17 +332,17 @@ CLOSING_PRICE = "Closing Price"
 PRICE_CHANGE = "Price Change Pct"
 
 WILLCO = "WILLCO"
-WILLCO_CUSTOM = WILLCO + LB_CUSTOM
+WILLCO_NPF = WILLCO + LB_NPF
 WILLCO_26 = WILLCO + LB_26
 WILLCO_52 = WILLCO + LB_52
 
 LIQUIDITY_STRAIN = "Liquidity Strain"
-LIQUIDITY_STRAIN_CUSTOM = LIQUIDITY_STRAIN + ZSCORE + LB_CUSTOM
+LIQUIDITY_STRAIN_NPF = LIQUIDITY_STRAIN + ZSCORE + LB_NPF
 LIQUIDITY_STRAIN_26 = LIQUIDITY_STRAIN + ZSCORE + LB_26
 LIQUIDITY_STRAIN_52 = LIQUIDITY_STRAIN + ZSCORE + LB_52
 
 PRICE_HEDGING_DIV = "Price Hedging Divergence"
-PRICE_HEDGING_DIV_CUSTOM = PRICE_HEDGING_DIV + ZSCORE + LB_CUSTOM
+PRICE_HEDGING_DIV_NPF = PRICE_HEDGING_DIV + ZSCORE + LB_NPF
 PRICE_HEDGING_DIV_26 = PRICE_HEDGING_DIV + ZSCORE + LB_26
 PRICE_HEDGING_DIV_52 = PRICE_HEDGING_DIV + ZSCORE + LB_52
 
@@ -574,9 +578,84 @@ def get_lookback_header_str(lookback):
     lb_name = lookback[0]
     lb_weeks = lookback[1]
 
+    if lb_name == "NPF":
+        return LB_NPF
     if lb_name == "Custom":
-        return LB_CUSTOM
+        return LB_CUSTOM_DEPRECATED
     if lb_name == "CMR":
         return LB_CMR
 
     return " " + str(lb_weeks)
+
+
+# ── Deprecated "Custom" vocabulary (0.19.0) ──────────────────────────────────────
+# The frozen table was called "Custom" (CustomLookbackWeeks, "Comm Custom Idx") until
+# 0.19.0, when the app started using "Custom" for a different table. The old names
+# keep working for at least one release:
+#   * frames carry BOTH families, " NPF" and an identical " Custom" copy, so code that
+#     indexes "Comm Custom Idx" by string reads the same values;
+#   * the lookback argument "Custom" is accepted wherever "NPF" is (check_lookback);
+#   * params.yaml's CustomLookbackWeeks key is read when NpfLookbackWeeks is absent;
+#   * the old constants below resolve, with a DeprecationWarning, to the NEW columns,
+#     so code using them keeps working after the " Custom" copy is dropped.
+LB_CUSTOM_DEPRECATED = " Custom"
+DEPRECATED_LOOKBACK = "Custom"
+
+_DEPRECATED_CUSTOM = {
+    "LB_CUSTOM": "LB_NPF",
+    "OPEN_INTEREST_CUSTOM_ZSCORE": "OPEN_INTEREST_NPF_ZSCORE",
+    "COMM_CUSTOM_CORR": "COMM_NPF_CORR",
+    "LARGE_CUSTOM_CORR": "LARGE_NPF_CORR",
+    "SMALL_CUSTOM_CORR": "SMALL_NPF_CORR",
+    "COMM_CUSTOM_NORM_CORR": "COMM_NPF_NORM_CORR",
+    "LARGE_CUSTOM_NORM_CORR": "LARGE_NPF_NORM_CORR",
+    "SMALL_CUSTOM_NORM_CORR": "SMALL_NPF_NORM_CORR",
+    "COMM_CUSTOM_IDX": "COMM_NPF_IDX",
+    "LARGE_CUSTOM_IDX": "LARGE_NPF_IDX",
+    "SMALL_CUSTOM_IDX": "SMALL_NPF_IDX",
+    "COMM_CUSTOM_IDX_NORM": "COMM_NPF_IDX_NORM",
+    "LARGE_CUSTOM_IDX_NORM": "LARGE_NPF_IDX_NORM",
+    "SMALL_CUSTOM_IDX_NORM": "SMALL_NPF_IDX_NORM",
+    "COMM_CUSTOM_ZSCORE": "COMM_NPF_ZSCORE",
+    "LARGE_CUSTOM_ZSCORE": "LARGE_NPF_ZSCORE",
+    "SMALL_CUSTOM_ZSCORE": "SMALL_NPF_ZSCORE",
+    "COMM_CUSTOM_ZSCORE_NORM": "COMM_NPF_ZSCORE_NORM",
+    "LARGE_CUSTOM_ZSCORE_NORM": "LARGE_NPF_ZSCORE_NORM",
+    "SMALL_CUSTOM_ZSCORE_NORM": "SMALL_NPF_ZSCORE_NORM",
+    "COMM_CUSTOM_WOW": "COMM_NPF_WOW",
+    "COMM_CUSTOM_WOW_NORM": "COMM_NPF_WOW_NORM",
+    "WILLCO_CUSTOM": "WILLCO_NPF",
+    "LIQUIDITY_STRAIN_CUSTOM": "LIQUIDITY_STRAIN_NPF",
+    "PRICE_HEDGING_DIV_CUSTOM": "PRICE_HEDGING_DIV_NPF",
+}
+
+
+def __getattr__(name):
+    new = _DEPRECATED_CUSTOM.get(name)
+    if new is None:
+        raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
+    import warnings
+    warnings.warn(f"cotmetrics.constants.{name} is deprecated, use {new} "
+                  f"(the Custom lookback family is now NPF)",
+                  DeprecationWarning, stacklevel=2)
+    return globals()[new]
+
+
+def is_npf_lookback(lookback):
+    """True for the frozen NPF table, under its current or its deprecated name."""
+    return lookback in (LB_NPF_FAMILY, DEPRECATED_LOOKBACK)
+
+
+def check_lookback(lookback, stacklevel=3):
+    """Warn once per call site when a caller still passes the old "Custom" name.
+
+    Returns the argument unchanged: " Custom" columns are still on every frame, so the
+    old name resolves to the same values. Callers that branch on the family should ask
+    is_npf_lookback rather than compare to either string.
+    """
+    if lookback == DEPRECATED_LOOKBACK:
+        import warnings
+        warnings.warn('lookback "Custom" is deprecated, use "NPF" (the frozen NPF '
+                      'research table, NpfLookbackWeeks in params.yaml)',
+                      DeprecationWarning, stacklevel=stacklevel)
+    return lookback

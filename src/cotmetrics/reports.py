@@ -22,6 +22,7 @@ def get_matrix_data(asset_classes, lookback, target_date=None):
         asset_classes = get_indexer().get_asset_classes()
 
     rows = []
+    const.check_lookback(lookback)
     lookback_str = " " + lookback
 
     idx_col = const.COMM + lookback_str + const.IDX

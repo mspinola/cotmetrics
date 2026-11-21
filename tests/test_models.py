@@ -270,13 +270,13 @@ def test_the_band_is_wider_under_npf():
 
 def test_each_model_names_its_own_column_family():
     """Raw PF reads the plain columns, NPF the OI-normalized twins."""
-    comm, lrg, sml = models.RAW_PF.leg_columns("Custom")
-    assert (comm, lrg, sml) == ("Comm Custom Idx", "Lrg Spec Custom Idx",
-                                "Sml Spec Custom Idx")
+    comm, lrg, sml = models.RAW_PF.leg_columns("NPF")
+    assert (comm, lrg, sml) == ("Comm NPF Idx", "Lrg Spec NPF Idx",
+                                "Sml Spec NPF Idx")
 
-    comm, lrg, sml = models.NPF.leg_columns("Custom")
-    assert (comm, lrg, sml) == ("Comm Custom Idx Norm", "Lrg Spec Custom Idx Norm",
-                                "Sml Spec Custom Idx Norm")
+    comm, lrg, sml = models.NPF.leg_columns("NPF")
+    assert (comm, lrg, sml) == ("Comm NPF Idx Norm", "Lrg Spec NPF Idx Norm",
+                                "Sml Spec NPF Idx Norm")
 
 
 def test_the_column_family_follows_the_basis_not_the_model_name():
@@ -284,11 +284,11 @@ def test_the_column_family_follows_the_basis_not_the_model_name():
     for m in models.MODELS:
         normalized = m.basis == const.BASIS_OI_NORM
         assert all(c.endswith(const.NORMALIZED) == normalized
-                   for c in m.leg_columns("Custom"))
+                   for c in m.leg_columns("NPF"))
 
 
 def test_the_lookback_travels_into_every_column():
-    for lookback in ("Custom", "26", "52"):
+    for lookback in ("NPF", "26", "52"):
         assert all(f" {lookback} " in c for c in models.RAW_PF.leg_columns(lookback))
 
 
@@ -302,39 +302,39 @@ def test_setup_state_from_reads_the_family_matching_the_basis():
     """
     row = {
         # raw family: a Raw PF bull setup (comm high, both spec legs low)
-        "Comm Custom Idx": 100, "Lrg Spec Custom Idx": 2, "Sml Spec Custom Idx": 3,
+        "Comm NPF Idx": 100, "Lrg Spec NPF Idx": 2, "Sml Spec NPF Idx": 3,
         # normalized family: an NPF bear setup (comm low, small high)
-        "Comm Custom Idx Norm": 5, "Lrg Spec Custom Idx Norm": 50,
-        "Sml Spec Custom Idx Norm": 95,
+        "Comm NPF Idx Norm": 5, "Lrg Spec NPF Idx Norm": 50,
+        "Sml Spec NPF Idx Norm": 95,
     }
-    assert models.RAW_PF.setup_state_from(row, "Custom") == const.SETUP_BULL
-    assert models.NPF.setup_state_from(row, "Custom") == const.SETUP_BEAR
+    assert models.RAW_PF.setup_state_from(row, "NPF") == const.SETUP_BULL
+    assert models.NPF.setup_state_from(row, "NPF") == const.SETUP_BEAR
 
 
 def test_setup_state_from_matches_passing_the_legs_by_hand():
     row = {
-        "Comm Custom Idx": 97, "Lrg Spec Custom Idx": 1, "Sml Spec Custom Idx": 4,
-        "Comm Custom Idx Norm": 88, "Lrg Spec Custom Idx Norm": 20,
-        "Sml Spec Custom Idx Norm": 12,
+        "Comm NPF Idx": 97, "Lrg Spec NPF Idx": 1, "Sml Spec NPF Idx": 4,
+        "Comm NPF Idx Norm": 88, "Lrg Spec NPF Idx Norm": 20,
+        "Sml Spec NPF Idx Norm": 12,
     }
     for m in models.MODELS:
-        comm, lrg, sml = (row[c] for c in m.leg_columns("Custom"))
-        assert m.setup_state_from(row, "Custom") == m.setup_state(comm, lrg, sml)
+        comm, lrg, sml = (row[c] for c in m.leg_columns("NPF"))
+        assert m.setup_state_from(row, "NPF") == m.setup_state(comm, lrg, sml)
 
 
 def test_equity_rows_still_ignore_the_speculator_legs():
     """The equity carve-out survives the indirection."""
-    row = {"Comm Custom Idx": 100, "Lrg Spec Custom Idx": 99, "Sml Spec Custom Idx": 99,
-           "Comm Custom Idx Norm": 100, "Lrg Spec Custom Idx Norm": 99,
-           "Sml Spec Custom Idx Norm": 99}
+    row = {"Comm NPF Idx": 100, "Lrg Spec NPF Idx": 99, "Sml Spec NPF Idx": 99,
+           "Comm NPF Idx Norm": 100, "Lrg Spec NPF Idx Norm": 99,
+           "Sml Spec NPF Idx Norm": 99}
     for m in models.MODELS:
-        assert m.setup_state_from(row, "Custom", is_equity=True) == const.SETUP_BULL
-        assert m.setup_state_from(row, "Custom", is_equity=False) != const.SETUP_BULL
+        assert m.setup_state_from(row, "NPF", is_equity=True) == const.SETUP_BULL
+        assert m.setup_state_from(row, "NPF", is_equity=False) != const.SETUP_BULL
 
 
 def test_a_missing_column_does_not_raise():
     """Frames from a partial fetch must degrade to no verdict, not an exception."""
-    assert models.NPF.setup_state_from({}, "Custom") == const.SETUP_NONE
+    assert models.NPF.setup_state_from({}, "NPF") == const.SETUP_NONE
 
 
 # ── how long a market has been telling its story ──────────────────────────────
@@ -354,21 +354,21 @@ NEUTRAL = (50, 50, 50)
 def _age_frame(*weeks):
     """A frame of (comm, lrg, sml) rows on the raw family, oldest first."""
     return pd.DataFrame(
-        [{"Comm Custom Idx": c, "Lrg Spec Custom Idx": lrg, "Sml Spec Custom Idx": sml}
+        [{"Comm NPF Idx": c, "Lrg Spec NPF Idx": lrg, "Sml Spec NPF Idx": sml}
          for c, lrg, sml in weeks],
         index=pd.date_range("2026-01-06", periods=len(weeks), freq="7D"),
     )
 
 
 def _age(*weeks, cap=104):
-    return models.RAW_PF.setup_age_from(_age_frame(*weeks), "Custom", cap=cap)
+    return models.RAW_PF.setup_age_from(_age_frame(*weeks), "NPF", cap=cap)
 
 
 def test_the_fixtures_are_the_states_they_claim_to_be():
     """Everything below reads as nonsense if these drift, so pin them here rather than
     letting a band change quietly turn the age tests into tests of something else."""
     state = lambda legs: models.RAW_PF.setup_state_from(  # noqa: E731
-        dict(zip(models.RAW_PF.leg_columns("Custom"), legs)), "Custom")
+        dict(zip(models.RAW_PF.leg_columns("NPF"), legs)), "NPF")
     assert state(FULL_BULL) == const.SETUP_BULL
     assert state(NEAR_BULL) == const.SETUP_NEAR_BULL
     assert state(FULL_BEAR) == const.SETUP_BEAR
@@ -414,22 +414,22 @@ def test_the_cap_bounds_the_walk_not_the_market():
     The longest run either model has produced over the full history of all 42 markets
     is 51 weeks, so the default cap is roughly double the worst case."""
     assert _age(*([FULL_BULL] * 20), cap=5) == 5
-    assert models.RAW_PF.setup_age_from(_age_frame(FULL_BULL), "Custom").__class__ is int
+    assert models.RAW_PF.setup_age_from(_age_frame(FULL_BULL), "NPF").__class__ is int
 
 
 def test_an_empty_frame_is_no_age_rather_than_an_error():
-    assert models.RAW_PF.setup_age_from(_age_frame(), "Custom") == 0
-    assert models.RAW_PF.setup_age_from(None, "Custom") == 0
+    assert models.RAW_PF.setup_age_from(_age_frame(), "NPF") == 0
+    assert models.RAW_PF.setup_age_from(None, "NPF") == 0
 
 
 def test_both_models_answer_on_their_own_basis():
     """Age inherits the whole bundle: a frame carrying both families ages differently
     under each model, because each reads its own columns through its own band."""
     frame = pd.DataFrame(
-        [{"Comm Custom Idx": 100, "Lrg Spec Custom Idx": 0, "Sml Spec Custom Idx": 0,
-          "Comm Custom Idx Norm": 50, "Lrg Spec Custom Idx Norm": 50,
-          "Sml Spec Custom Idx Norm": 50}] * 4,
+        [{"Comm NPF Idx": 100, "Lrg Spec NPF Idx": 0, "Sml Spec NPF Idx": 0,
+          "Comm NPF Idx Norm": 50, "Lrg Spec NPF Idx Norm": 50,
+          "Sml Spec NPF Idx Norm": 50}] * 4,
         index=pd.date_range("2026-01-06", periods=4, freq="7D"),
     )
-    assert models.RAW_PF.setup_age_from(frame, "Custom") == 4
-    assert models.NPF.setup_age_from(frame, "Custom") == 0
+    assert models.RAW_PF.setup_age_from(frame, "NPF") == 4
+    assert models.NPF.setup_age_from(frame, "NPF") == 0

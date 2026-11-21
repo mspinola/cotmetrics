@@ -339,7 +339,7 @@ def _swept(monkeypatch, comm_wow, lrg_wow=4.0, sml_wow=-6.0, model=None,
            target_date=None):
     """The single board row for a market whose legs moved by the given amounts."""
     model = model or models.resolve(None)
-    comm_col, lrg_col, sml_col = model.leg_columns("Custom")
+    comm_col, lrg_col, sml_col = model.leg_columns("NPF")
     frame = pd.DataFrame(
         {
             const.COMMS_IDX: [98.0, 100.0],

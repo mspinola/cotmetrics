@@ -97,12 +97,13 @@ def milliseconds_until_midnight():
 
 
 def get_lookback_weeks(lookback, instrument):
+    constants.check_lookback(lookback)
     if lookback == "26":
         return 26
     elif lookback == "52":
         return 52
     else:
-        return instrument.custom_lookback
+        return instrument.npf_lookback
 
 
 def is_setup(is_equity, comms_idx, lrg_idx, sml_idx, min_idx=5, max_idx=95,

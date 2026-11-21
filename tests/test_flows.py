@@ -158,7 +158,7 @@ def _legacy_indexer(monkeypatch, n=80, codes=None, reports=(DISAGG,)):
         cat[const.SOURCE_CODE] = codes
     monkeypatch.setattr(CotIndexer, "available_reports_for", lambda self, name: reports)
     monkeypatch.setattr(CotIndexer, "get_category_data",
-                        lambda self, name, report, lookback="Custom", with_price=True: cat)
+                        lambda self, name, report, lookback="NPF", with_price=True: cat)
     monkeypatch.setattr(CotIndexer, "is_equity", lambda self, name: False)
     ix = CotIndexer.__new__(CotIndexer)
     ix._state = _IndexState()

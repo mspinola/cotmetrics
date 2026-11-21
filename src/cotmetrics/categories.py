@@ -287,7 +287,7 @@ def build_category_frame(raw, report, lookback_weeks, lookback_header=None,
             CFTC image indexed by report date.
         report: REPORT_DISAGG or REPORT_TFF.
         lookback_weeks: index / z-score lookback in weekly reports.
-        lookback_header: the column-name infix, e.g. " 52" or " Custom". Defaults to
+        lookback_header: the column-name infix, e.g. " 52" or " NPF". Defaults to
             " <weeks>". Passed explicitly rather than derived so the caller cannot
             end up computing a different header than the one baked into the columns;
             the frame stamps its own under attrs["lookback_header"].

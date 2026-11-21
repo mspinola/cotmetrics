@@ -3,6 +3,7 @@ import importlib
 import json
 import os
 import threading
+import warnings
 
 import pandas as pd
 import yaml
@@ -26,6 +27,28 @@ VALID_ROLES = frozenset({"deploy", "watch", "heldout"})
 PLOTTED_ROLES = frozenset({"deploy", "watch"})
 
 
+def npf_lookback_weeks(asset: dict) -> int:
+    """The frozen NPF table's weeks for one params.yaml entry.
+
+    NpfLookbackWeeks is the key from 0.19.0. CustomLookbackWeeks, its old name, is
+    still read (with a DeprecationWarning) when the new key is absent. An entry carrying
+    both with different values is refused rather than resolved: either answer would
+    silently change a pre-registered book's signals.
+    """
+    new, old = asset.get("NpfLookbackWeeks"), asset.get("CustomLookbackWeeks")
+    if new is not None and old is not None and int(new) != int(old):
+        raise ValueError(
+            f"{asset.get('Symbol')}: NpfLookbackWeeks={new} disagrees with its deprecated "
+            f"alias CustomLookbackWeeks={old}; keep one key")
+    if new is not None:
+        return new
+    if old is not None:
+        warnings.warn("params.yaml key CustomLookbackWeeks is deprecated, rename it to "
+                      "NpfLookbackWeeks", DeprecationWarning, stacklevel=2)
+        return old
+    raise KeyError(f"{asset.get('Symbol')}: params.yaml entry has no NpfLookbackWeeks")
+
+
 def resolve_role(asset: dict, asset_class: str, role_config: dict) -> str:
     """A per-instrument ``Role`` wins, else the class-level default in ``role_config``,
     else ``role_config['default']`` (falling back to 'deploy'). Raises on an unknown
@@ -40,15 +63,17 @@ def resolve_role(asset: dict, asset_class: str, role_config: dict) -> str:
 
 
 class Instrument:
-    def __init__(self, asset_class_, name_, symbol_, code_, custom_lookback_,
+    def __init__(self, asset_class_, name_, symbol_, code_, npf_lookback_,
                  role_="deploy", cmr_lookback_=None):
         self.asset_class = asset_class_
         self.name = name_
         self.symbol = symbol_
         self.code = code_
-        self.custom_lookback = custom_lookback_
-        # CMR's published lookback (CmrLookbackWeeks); falls back to the custom one.
-        self.cmr_lookback = cmr_lookback_ if cmr_lookback_ is not None else custom_lookback_
+        # The frozen NPF research table (NpfLookbackWeeks, "CustomLookbackWeeks" before
+        # 0.19.0). Its values are a pre-registered spec: livebook trades on them.
+        self.npf_lookback = npf_lookback_
+        # CMR's published lookback (CmrLookbackWeeks); falls back to the NPF one.
+        self.cmr_lookback = cmr_lookback_ if cmr_lookback_ is not None else npf_lookback_
         self.role = role_
         self.df = pd.DataFrame()
         # The E-mini-alone frame, for equity index markets that sum parallel listings
@@ -68,8 +93,15 @@ class Instrument:
     def sort_by_date(self, col, ascending=True):
         self.df = self.df.sort_values(by=col, ascending=ascending)
 
+    @property
+    def custom_lookback(self):
+        """Deprecated alias of npf_lookback (the table was called Custom until 0.19.0)."""
+        warnings.warn("Instrument.custom_lookback is deprecated, use npf_lookback",
+                      DeprecationWarning, stacklevel=2)
+        return self.npf_lookback
+
     def __str__(self):
-        return f"{self.name} {self.symbol} {self.code} {self.custom_lookback}"
+        return f"{self.name} {self.symbol} {self.code} {self.npf_lookback}"
 
 
 class _IndexState:
@@ -268,7 +300,7 @@ class CotIndexer:
                         if not code == "":
                             self.instruments[code] = Instrument(
                                 asset_class, asset["Name"], asset["Symbol"], code,
-                                asset["CustomLookbackWeeks"],
+                                npf_lookback_weeks(asset),
                                 resolve_role(asset, asset_class, self.role_config),
                                 asset.get("CmrLookbackWeeks"))
                             self.supported_instruments.add(code)
@@ -467,9 +499,9 @@ class CotIndexer:
                     utils.cot_logger.warning(f"try_load_from_cache: cache invalid or empty -> {cache_path}")
                     return False
 
-                # Ensure it has calculated metrics in it (e.g. COMM_CUSTOM_IDX)
+                # Ensure it has calculated metrics in it (e.g. COMM_NPF_IDX)
                 # If it doesn't, it is a partial/price-only cache and needs recalculation
-                if const.COMM_CUSTOM_IDX not in cached_df.columns:
+                if const.COMM_NPF_IDX not in cached_df.columns:
                     utils.cot_logger.warning(f"try_load_from_cache: missing metrics in -> {cache_path}")
                     return False
 
@@ -483,8 +515,8 @@ class CotIndexer:
                     utils.cot_logger.warning(f"try_load_from_cache: missing CMR index in -> {cache_path}")
                     return False
 
-                if (const.COMM_CUSTOM_WOW not in cached_df.columns
-                        or const.COMM_CUSTOM_WOW_NORM not in cached_df.columns):
+                if (const.COMM_NPF_WOW not in cached_df.columns
+                        or const.COMM_NPF_WOW_NORM not in cached_df.columns):
                     utils.cot_logger.warning(f"try_load_from_cache: missing WoW metrics in -> {cache_path}")
                     return False
 
@@ -763,7 +795,7 @@ class CotIndexer:
         ever sees it.
         """
         twin = Instrument(contracts.COMBINED_CLASS, inst.name + contracts.COMBINED_SUFFIX,
-                          inst.symbol, inst.code, inst.custom_lookback, inst.role,
+                          inst.symbol, inst.code, inst.npf_lookback, inst.role,
                           inst.cmr_lookback)
         twin.df = inst.df
         twin.twin_of = inst.code
@@ -787,6 +819,18 @@ class CotIndexer:
                 and getattr(instrument, "emini_df", None) is not None):
             return "primary"
         return None
+
+    @staticmethod
+    def copy_deprecated_custom_family(df):
+        """Copy every " NPF" family column to its pre-0.19.0 " Custom" name.
+
+        A copy, not a recompute, so the two families cannot disagree. Kept for at least
+        one release so code (and the npf reproducers) that index "Comm Custom Idx" by
+        string read the same frozen-table values. Drop with the deprecation.
+        """
+        npf_cols = [c for c in df.columns if const.LB_NPF in c]
+        copies = {c.replace(const.LB_NPF, const.LB_CUSTOM_DEPRECATED): df[c] for c in npf_cols}
+        return df.assign(**copies)
 
     @staticmethod
     def process_lookback(lookback, symbol, df):
@@ -1154,7 +1198,8 @@ class CotIndexer:
         df[const.LARGE_PCT_OI] = round((df[const.LARGE_NET] / (df[const.OPEN_INTEREST_XLS] + 1e-9)) * 100, 2)
         df[const.SMALL_PCT_OI] = round((df[const.SMALL_NET] / (df[const.OPEN_INTEREST_XLS] + 1e-9)) * 100, 2)
 
-        df = CotIndexer.process_lookback(["Custom", inst_obj.custom_lookback], inst_obj.symbol, df)
+        df = CotIndexer.process_lookback(["NPF", inst_obj.npf_lookback], inst_obj.symbol, df)
+        df = CotIndexer.copy_deprecated_custom_family(df)
         for lookback in self.lookbacks:
             df = CotIndexer.process_lookback(lookback, inst_obj.symbol, df)
         df = CotIndexer.process_lookback(["CMR", inst_obj.cmr_lookback], inst_obj.symbol, df)
@@ -1262,13 +1307,13 @@ class CotIndexer:
             working_dir, csv_data, "positioning_summary.csv")
 
         cols = [const.DATE, const.SYMBOL, const.NAME, const.LOOKBACK,
-                const.COMM_CUSTOM_IDX, const.LARGE_CUSTOM_IDX, const.SMALL_CUSTOM_IDX,
+                const.COMM_NPF_IDX, const.LARGE_NPF_IDX, const.SMALL_NPF_IDX,
                 const.COMM_26_IDX, const.LARGE_26_IDX, const.SMALL_26_IDX,
                 const.COMM_52_IDX, const.LARGE_52_IDX, const.SMALL_52_IDX,
-                const.COMM_CUSTOM_ZSCORE, const.LARGE_CUSTOM_ZSCORE, const.SMALL_CUSTOM_ZSCORE,
+                const.COMM_NPF_ZSCORE, const.LARGE_NPF_ZSCORE, const.SMALL_NPF_ZSCORE,
                 const.COMM_26_ZSCORE, const.LARGE_26_ZSCORE, const.SMALL_26_ZSCORE,
                 const.COMM_52_ZSCORE, const.LARGE_52_ZSCORE, const.SMALL_52_ZSCORE,
-                const.COMM_CUSTOM_CORR, const.LARGE_CUSTOM_CORR, const.SMALL_CUSTOM_CORR,
+                const.COMM_NPF_CORR, const.LARGE_NPF_CORR, const.SMALL_NPF_CORR,
                 const.COMM_26_CORR, const.LARGE_26_CORR, const.SMALL_26_CORR,
                 const.COMM_52_CORR, const.LARGE_52_CORR, const.SMALL_52_CORR,
                 ]
@@ -1281,16 +1326,16 @@ class CotIndexer:
                 df = instrument.df
 
                 new_df = pd.DataFrame(
-                    [[df.iloc[-1][const.REPORT_DATE_XLS].date(), instrument.symbol, instrument.name, instrument.custom_lookback,
-                      df.iloc[-1][const.COMM_CUSTOM_IDX], df.iloc[-1][const.LARGE_CUSTOM_IDX], df.iloc[-1][const.SMALL_CUSTOM_IDX],
+                    [[df.iloc[-1][const.REPORT_DATE_XLS].date(), instrument.symbol, instrument.name, instrument.npf_lookback,
+                      df.iloc[-1][const.COMM_NPF_IDX], df.iloc[-1][const.LARGE_NPF_IDX], df.iloc[-1][const.SMALL_NPF_IDX],
                       df.iloc[-1][const.COMM_26_IDX], df.iloc[-1][const.LARGE_26_IDX], df.iloc[-1][const.SMALL_26_IDX],
                       df.iloc[-1][const.COMM_52_IDX], df.iloc[-1][const.LARGE_52_IDX], df.iloc[-1][const.SMALL_52_IDX],
 
-                      df.iloc[-1][const.COMM_CUSTOM_ZSCORE], df.iloc[-1][const.LARGE_26_ZSCORE], df.iloc[-1][const.SMALL_CUSTOM_ZSCORE],
+                      df.iloc[-1][const.COMM_NPF_ZSCORE], df.iloc[-1][const.LARGE_26_ZSCORE], df.iloc[-1][const.SMALL_NPF_ZSCORE],
                       df.iloc[-1][const.COMM_26_ZSCORE], df.iloc[-1][const.LARGE_26_ZSCORE], df.iloc[-1][const.SMALL_26_ZSCORE],
                       df.iloc[-1][const.COMM_52_ZSCORE], df.iloc[-1][const.LARGE_52_ZSCORE], df.iloc[-1][const.SMALL_52_ZSCORE],
 
-                      df.iloc[-1][const.COMM_CUSTOM_CORR], df.iloc[-1][const.LARGE_CUSTOM_CORR], df.iloc[-1][const.SMALL_CUSTOM_CORR],
+                      df.iloc[-1][const.COMM_NPF_CORR], df.iloc[-1][const.LARGE_NPF_CORR], df.iloc[-1][const.SMALL_NPF_CORR],
                       df.iloc[-1][const.COMM_26_CORR], df.iloc[-1][const.LARGE_26_CORR], df.iloc[-1][const.SMALL_26_CORR],
                       df.iloc[-1][const.COMM_52_CORR], df.iloc[-1][const.LARGE_52_CORR], df.iloc[-1][const.SMALL_52_CORR],
                       ]], columns=positioning_df.columns)
@@ -1318,7 +1363,7 @@ class CotIndexer:
 
         for instrument in self.supported_instruments:
             symbol = self.instruments[instrument].symbol
-            lb = self.instruments[instrument].custom_lookback
+            lb = self.instruments[instrument].npf_lookback
             data_file_name = f'{symbol}.csv'
             real_test_csv_path = os.path.join(
                 working_dir, real_test_data_dir, "RT_event_list_lb_" + str(lb) + "_" + data_file_name)
@@ -1338,7 +1383,7 @@ class CotIndexer:
         commercial_idx_df[const.SYMBOL] = [
             self.instruments[instrument].symbol] * len(df[const.REPORT_DATE_XLS])
         commercial_idx_df["Type"] = 1  # Commercials index
-        commercial_idx_df["Value"] = df[const.COMM_CUSTOM_IDX]
+        commercial_idx_df["Value"] = df[const.COMM_NPF_IDX]
         commercial_idx_df = commercial_idx_df[commercial_idx_df["Value"] != -1]
 
         # Add large specs
@@ -1348,7 +1393,7 @@ class CotIndexer:
         large_specs_idx_df[const.SYMBOL] = [
             self.instruments[instrument].symbol] * len(df[const.REPORT_DATE_XLS])
         large_specs_idx_df["Type"] = 2  # Non-Commercial index
-        large_specs_idx_df["Value"] = df[const.LARGE_CUSTOM_IDX]
+        large_specs_idx_df["Value"] = df[const.LARGE_NPF_IDX]
         large_specs_idx_df = large_specs_idx_df[large_specs_idx_df["Value"] != -1]
 
         # Add small specs
@@ -1358,7 +1403,7 @@ class CotIndexer:
         small_specs_idx_df[const.SYMBOL] = [
             self.instruments[instrument].symbol] * len(df[const.REPORT_DATE_XLS])
         small_specs_idx_df["Type"] = 3  # Small specs index
-        small_specs_idx_df["Value"] = df[const.SMALL_CUSTOM_IDX]
+        small_specs_idx_df["Value"] = df[const.SMALL_NPF_IDX]
         small_specs_idx_df = small_specs_idx_df[small_specs_idx_df["Value"] != -1]
 
         #
@@ -1646,6 +1691,7 @@ class CotIndexer:
         if basis not in const.BASIS_CHOICES:
             raise ValueError(f"unknown basis {basis!r}, expected one of {const.BASIS_CHOICES}")
         normalized = basis == const.BASIS_OI_NORM
+        const.check_lookback(lookback)
         lookback = " " + lookback
 
         # Cold-start path only. This call cannot be relied on to notice new data,
@@ -1810,11 +1856,12 @@ class CotIndexer:
     # axis. Recomputing is cheap enough that this is not a trade: ~1,050 weekly rows
     # times five categories is a handful of rolling passes.
     @contracts.contracts_cached(64)
-    def get_category_data(self, name, report, lookback="Custom", with_price=True):
+    def get_category_data(self, name, report, lookback="NPF", with_price=True):
         """Per-category frame for one instrument, indexed by Date like get_symbols_data.
 
         `report` is categories.REPORT_DISAGG or REPORT_TFF. `lookback` is the same
-        "26"/"52"/"Custom" string the app's global lookback store carries. Returns
+        "26"/"52"/"NPF"/"CMR" string the app's global lookback store carries ("Custom",
+        the NPF table's name before 0.19.0, still works and warns). Returns
         None when the instrument has no such report, or on a load failure.
 
         The price columns are joined here rather than by the caller: cot-analyzer is
@@ -1836,10 +1883,11 @@ class CotIndexer:
         if report not in self.available_reports_for(name):
             return None
 
-        weeks = instrument.custom_lookback
+        const.check_lookback(lookback)
+        weeks = instrument.npf_lookback
         if lookback == "CMR":
             weeks = instrument.cmr_lookback
-        elif lookback != "Custom":
+        elif not const.is_npf_lookback(lookback):
             for lb_name, lb_weeks in self.lookbacks:
                 if str(lb_weeks) == str(lookback) or lb_name == lookback:
                     weeks = lb_weeks
@@ -1922,7 +1970,7 @@ class CotIndexer:
         source = None
         if reports:
             roles = flow_roles.roles_for(reports[0], instrument.symbol).as_dict()
-            cat = self.get_category_data(name, reports[0], "Custom", with_price=False)
+            cat = self.get_category_data(name, reports[0], "NPF", with_price=False)
             if cat is not None and const.SOURCE_CODE in cat.columns:
                 code = cat[const.SOURCE_CODE]
                 code = code[~code.index.duplicated()]
@@ -2030,7 +2078,7 @@ class CotIndexer:
 
                     new_df = pd.DataFrame(
                         [[df.loc[idx, const.REPORT_DATE_XLS].date(), instrument.asset_class, df.loc[idx, const.OPEN_INTEREST_XLS],
-                          instrument.symbol, instrument.name, instrument.custom_lookback,
+                          instrument.symbol, instrument.name, instrument.npf_lookback,
                           df.loc[idx, const.COMM_NET], df.loc[idx, const.LARGE_NET], df.loc[idx, const.SMALL_NET],
                           df.loc[idx, const.COMM_PCT_OI], df.loc[idx, const.LARGE_PCT_OI], df.loc[idx, const.SMALL_PCT_OI],
                           df.loc[idx, COMM_IDX], df.loc[idx, LRG_IDX], df.loc[idx, SML_IDX],
@@ -2078,9 +2126,9 @@ class CotIndexer:
                 else:
                     heat_data.append({
                         "Asset": name,
-                        "Commercials": latest.get(const.COMM_CUSTOM_ZSCORE, 0),
-                        "Large Specs": latest.get(const.LARGE_CUSTOM_ZSCORE, 0),
-                        "Small Specs": latest.get(const.SMALL_CUSTOM_ZSCORE, 0)
+                        "Commercials": latest.get(const.COMM_NPF_ZSCORE, 0),
+                        "Large Specs": latest.get(const.LARGE_NPF_ZSCORE, 0),
+                        "Small Specs": latest.get(const.SMALL_NPF_ZSCORE, 0)
                     })
 
         return pd.DataFrame(heat_data)
@@ -2115,9 +2163,9 @@ class CotIndexer:
                 else:
                     heat_data.append({
                         "Asset": name,
-                        "Commercials": latest.get(const.COMM_CUSTOM_IDX, 0),
-                        "Large Specs": latest.get(const.LARGE_CUSTOM_IDX, 0),
-                        "Small Specs": latest.get(const.SMALL_CUSTOM_IDX, 0)
+                        "Commercials": latest.get(const.COMM_NPF_IDX, 0),
+                        "Large Specs": latest.get(const.LARGE_NPF_IDX, 0),
+                        "Small Specs": latest.get(const.SMALL_NPF_IDX, 0)
                     })
 
         return pd.DataFrame(heat_data)

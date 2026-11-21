@@ -76,7 +76,7 @@ def _benign_frame(n=N):
         const.PRICE_CHANGE: z.copy(),
         const.COMM_NET: z.copy(),
         const.COMM_PCT_OI: z.copy(),
-        const.LARGE_CUSTOM_IDX: fifty.copy(),
+        const.LARGE_NPF_IDX: fifty.copy(),
         const.LARGE_LONG_POS_XLS: np.full(n, 100_000.0),
         const.LARGE_SHORT_POS_XLS: np.full(n, 100_000.0),
         const.COMM_LONG_POS_XLS: np.full(n, 100_000.0),
